@@ -430,3 +430,32 @@ def shortcut(title, file_id, command, comment, desktop=False, menu=False):
 def shutil_which(name):
     import shutil
     return shutil.which(name)
+
+
+def newest_source(checkout):
+    """When the newest file the checkout tracks (by git) was changed; 0 if it can't tell."""
+    listed = subprocess.run(["git", "-C", checkout, "ls-files", "-z"], capture_output=True)
+    if listed.returncode != 0:
+        return 0
+    newest = 0
+    for name in listed.stdout.decode(errors="replace").split("\0"):
+        try:
+            newest = max(newest, os.path.getmtime(os.path.join(checkout, name)))
+        except OSError:
+            pass
+    return newest
+
+
+def up_to_date(outputs, checkouts):
+    """Whether every one of `outputs` (what a build makes) is there and newer than every file the
+    `checkouts` track: a build that needn't run again (unless --reinstall)."""
+    if not outputs or not all(os.path.isfile(path) for path in outputs):
+        return False
+    built = min(os.path.getmtime(path) for path in outputs)
+    return all(built >= newest_source(checkout) for checkout in checkouts if os.path.isdir(checkout))
+
+
+def same_file(a, b):
+    """Whether `b` is there with the very bytes of `a`: a copy that needn't be made again."""
+    import filecmp
+    return os.path.isfile(b) and filecmp.cmp(a, b, shallow=False)
