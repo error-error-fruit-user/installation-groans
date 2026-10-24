@@ -79,6 +79,21 @@ weapons = "Weapons"
 shortcuts = "Shortcuts"
 play = "Launch"
 
+# Lines that only repeat what was just said (an empty phrase swallows them: written down, not shown)
+[[rewrite]]
+pattern = '^(Kept what .* says|Your usual loadout .* is missing.*|Data are loaded, start creating Blender stuff|Failed to register scene update handler|Read blend: .*|doomify: done)$'
+phrases = [""]
+
+[[rewrite]]
+pattern = '^\s*Building \['
+phrases = ["{line}"]
+color = "36"
+
+[[rewrite]]
+pattern = '^(Cut .* sprites|Wrote |Packing |Blender quit)'
+phrases = ["{line}"]
+color = "34"
+
 # What other programs print is left as it is, only coloured: warnings and errors stand out.
 [[rewrite]]
 pattern = '^\s*warning: '

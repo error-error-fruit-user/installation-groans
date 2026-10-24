@@ -39,14 +39,16 @@ ENV_VOICE = "GROANS_VOICE"          # the voice's file name
 ENV_COLOR = "GROANS_COLOR"          # "1": colour what is printed, though it isn't a terminal
 ENV_SECTION = "GROANS_SECTION"      # the section open when it was started
 ENV_CAPTURED = "GROANS_CAPTURED"    # "1": the outer one journals what this prints itself
+ENV_STARTED = "GROANS_STARTED"      # when the outermost script began (seconds since 1970)
 
-# Said only by the outermost script
-OUTER_EVENTS = ("begin", "done", "journal")
+# Said only by the outermost script: a script run by another opens with its own beginning (the outer
+# one says nothing about starting it), but the end and where the journal is are the outer one's
+OUTER_EVENTS = ("done", "journal")
 
 voice = {}
 journal = None
 depth = 0
-began = time.monotonic()
+began = time.time()
 open_section = None
 colored = False
 captured = False
@@ -79,8 +81,13 @@ def load(name):
 def start(journal_path=None, computer_speak=False):
     """Begins speaking: in the outer script's voice and journal when another runs this one, else
     in Toiling Through Hell (or Computer Speak) with `journal_path` as the journal (None: none)."""
-    global voice, journal, depth, open_section, colored, captured
+    global voice, journal, depth, open_section, colored, captured, began
     depth = int(os.environ.get(ENV_DEPTH, "0") or 0)
+    # 🕰️ one clock for the whole run, so the journal's times go on from the outer script's
+    try:
+        began = float(os.environ.get(ENV_STARTED) or began)
+    except ValueError:
+        pass
     name = (os.environ.get(ENV_VOICE) if nested() else None) or (
         COMPUTER_SPEAK if computer_speak else DEFAULT_VOICE)
     voice = load(name)
@@ -103,7 +110,7 @@ def note(line):
     os.makedirs(os.path.dirname(os.path.abspath(journal)), exist_ok=True)
     with open(journal, "a", encoding="utf-8") as book:
         for part in str(line).splitlines() or [""]:
-            book.write(f"[{time.monotonic() - began:8.3f}s] {part}\n")
+            book.write(f"[{time.time() - began:8.3f}s] {part}\n")
 
 
 def paint(text, key):
@@ -235,6 +242,8 @@ def declined():
 def rewrite(line):
     """Another program's line, in the voice: its first [[rewrite]] rule whose `pattern` matches it
     (a regex; `{1}`... are its groups), else its [fallback]."""
+    # (a rule whose phrase is empty swallows a line that only repeats what was said: written down,
+    # not shown)
     for rule in voice.get("rewrite", []):
         match = re.search(rule.get("pattern", "(?!)"), line)
         if match and rule.get("phrases"):
@@ -247,45 +256,83 @@ def rewrite(line):
 
 
 class Strain:
-    """The pulsing line under another program's lines when they pour out faster than the voice's
-    [strain] `threshold` a second: how hard the machine labours, redrawn under each new line."""
+    """What sits under another program's lines on a terminal: its progress line being redrawn in
+    place (a line it rewrites with carriage returns, like cargo's Building bar), or, while its lines
+    pour out faster than the voice's [strain] `threshold` a second, a pulsing line with how hard the
+    machine labours, kept beating by a ticker of its own between lines."""
 
     def __init__(self):
-        self.config = voice.get("strain", {}) if sys.stdout.isatty() else {}
+        import threading
+        self.on_terminal = sys.stdout.isatty()
+        self.config = voice.get("strain", {}) if self.on_terminal else {}
         self.times = []
-        self.shown = False
+        self.footer = ""          # what is drawn under the lines now
+        self.progress = False     # the footer is the program's own progress line
         self.began = time.monotonic()
+        self.lock = threading.Lock()
+        self.running = True
+        if self.config.get("frames"):
+            threading.Thread(target=self.tick, daemon=True).start()
 
-    def line(self, text, stream=None):
-        """Prints `text`, with the pulsing line under it while the lines come thick and fast."""
-        stream = stream or sys.stdout
-        now = time.monotonic()
-        self.times = [moment for moment in self.times if now - moment < 1.0] + [now]
-        if self.shown:
+    def wipe(self):
+        if self.footer:
             sys.stdout.write("\r\033[K")
-        print(text, file=stream, flush=True)
+            self.footer = ""
+
+    def draw(self, text):
+        if text:
+            sys.stdout.write(text)
+        sys.stdout.flush()
+        self.footer = text
+
+    def pulse(self):
+        """The strain line, as it beats now; empty while the lines come slowly."""
+        now = time.monotonic()
+        self.times = [moment for moment in self.times if now - moment < 1.0]
         threshold = float(self.config.get("threshold", 0) or 0)
         frames = self.config.get("frames") or []
         if not threshold or not frames or len(self.times) < threshold:
-            self.shown = False
-            return
+            return ""
         width = int(self.config.get("width", 16))
         filled = min(width, int(len(self.times) / threshold * width / 2) + 1)
         beat = int((now - self.began) / 0.15)
-        bar = "█" * filled + "░" * (width - filled)
-        frame = frames[beat % len(frames)].replace("{bar}", bar)
+        frame = frames[beat % len(frames)].replace("{bar}", "█" * filled + "░" * (width - filled))
         colors = self.config.get("colors") or ["31"]
-        code = colors[beat % len(colors)]
-        sys.stdout.write(f"\033[{code}m{frame}\033[0m" if colored else frame)
-        sys.stdout.flush()
-        self.shown = True
+        return f"\033[{colors[beat % len(colors)]}m{frame}\033[0m" if colored else frame
+
+    def tick(self):
+        while self.running:
+            time.sleep(0.15)
+            with self.lock:
+                if self.running and self.footer and not self.progress:
+                    self.wipe()
+                    self.draw(self.pulse())
+
+    def line(self, text, stream=None):
+        """Prints `text` above the footer, then draws the footer again."""
+        with self.lock:
+            self.times.append(time.monotonic())
+            self.wipe()
+            self.progress = False
+            print(text, file=stream or sys.stdout, flush=True)
+            if self.on_terminal:
+                self.draw(self.pulse())
+
+    def redraw(self, text):
+        """The program's progress line, drawn in place of the last one."""
+        with self.lock:
+            self.wipe()
+            self.progress = True
+            if self.on_terminal:
+                self.draw(text)
 
     def clear(self):
-        """Takes the pulsing line away, once the program is done."""
-        if self.shown:
-            sys.stdout.write("\r\033[K")
+        """Takes the footer away, once the program is done."""
+        with self.lock:
+            self.running = False
+            self.wipe()
+            self.progress = False
             sys.stdout.flush()
-            self.shown = False
 
 
 def outer_env(voiced):
@@ -300,15 +347,24 @@ def outer_env(voiced):
     if open_section:
         env[ENV_SECTION] = open_section
     env[ENV_CAPTURED] = "0" if voiced else "1"
+    env[ENV_STARTED] = repr(began)
+    if not voiced:
+        # 📊 cargo draws its Building bar into a pipe too, and plainly, for the voice to redraw
+        env.setdefault("CARGO_TERM_PROGRESS_WHEN", "always")
+        env.setdefault("CARGO_TERM_PROGRESS_WIDTH", "80")
+        env.setdefault("CARGO_TERM_COLOR", "never")
     return env
 
 
 def run(command, cwd=None, voiced=False, quiet_run=False):
-    """Runs `command` (in `cwd`), saying so. A voiced one (an install script of these projects)
-    speaks for itself on the terminal, into the same journal; anything else is read line by line
-    and rewritten in the voice. Raises CalledProcessError if it fails."""
+    """Runs `command` (in `cwd`). A voiced one (an installation-groaned script or program) speaks
+    for itself, into the same journal, so this says nothing about it; anything else is announced and
+    read as it comes, each line rewritten in the voice, a line it redraws in place (a progress bar)
+    redrawn here too. Raises CalledProcessError if it fails."""
     shown = " ".join("python3" if part == sys.executable else str(part) for part in command)
-    if not quiet_run:
+    if voiced or quiet_run:
+        note(f"+ {shown}" + (f"  (in {cwd})" if cwd else ""))
+    else:
         say("run", f"+ {shown}" + (f"  (in {cwd})" if cwd else ""), command=shown)
     env = outer_env(voiced)
     if voiced:
@@ -316,8 +372,19 @@ def run(command, cwd=None, voiced=False, quiet_run=False):
     else:
         process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT)
-        pending, raw = b"", False
         strain = Strain()
+        pending = b""
+
+        def finished_line(raw):
+            # a line it redrew with carriage returns ends as its last drawing
+            parts = raw.decode(errors="replace").split("\r")
+            text = next((part for part in reversed(parts) if part.strip()), "")
+            if text.strip():
+                said, key = rewrite(text)
+                if said:
+                    strain.line(paint(said, key))
+                note("  | " + text)
+
         while True:
             chunk = process.stdout.read1(4096) if hasattr(process.stdout, "read1") \
                 else process.stdout.readline()
@@ -325,27 +392,24 @@ def run(command, cwd=None, voiced=False, quiet_run=False):
                 break
             *lines, pending = (pending + chunk).split(b"\n")
             for line in lines:
-                text = line.decode(errors="replace").rstrip("\r")
-                if raw:
-                    # the rest of a prompt's line, already begun on the terminal
-                    print(text, flush=True)
-                    note("  | " + text)
-                    raw = False
-                elif text.strip():
-                    said, key = rewrite(text)
-                    strain.line(paint(said, key))
-                    note("  | " + text)
-            # 💬 something waiting for an answer has no newline yet: shown as it is
-            if pending and pending.rstrip().endswith((b":", b"?", b"]")) and not raw:
-                strain.clear()
-                sys.stdout.write(pending.decode(errors="replace"))
-                sys.stdout.flush()
-                note("  | " + pending.decode(errors="replace"))
-                pending, raw = b"", True
+                # cargo's progress bar ends with a carriage return before the next line: only
+                # what comes after its last one is the line
+                if b"\r" in line and not line.rstrip(b"\r").strip():
+                    continue
+                finished_line(line)
+            # 🔄 a line being redrawn (a progress bar) or waiting for an answer (a prompt) is shown
+            # as it stands
+            if b"\r" in pending:
+                parts = pending.decode(errors="replace").split("\r")
+                drawing = next((part for part in reversed(parts) if part.strip()), "")
+                if drawing.strip():
+                    said, key = rewrite(drawing.rstrip())
+                    strain.redraw(paint(said or drawing.rstrip(), key))
+                pending = pending[pending.rfind(b"\r") + 1:]
+            elif pending.rstrip().endswith((b":", b"?", b"]")):
+                strain.redraw(pending.decode(errors="replace"))
         if pending.strip():
-            said, key = rewrite(pending.decode(errors="replace"))
-            strain.line(paint(said, key))
-            note("  | " + pending.decode(errors="replace"))
+            finished_line(pending)
         strain.clear()
         code = process.wait()
     note(f"  ended with code {code}")
@@ -367,7 +431,8 @@ def finish(what, ok=True, error=None):
 def other(line, stream=None):
     """A line that is no event, said the way another program's lines are (rewritten, coloured)."""
     said, key = rewrite(line)
-    print(paint(said, key), file=stream or sys.stdout, flush=True)
+    if said:
+        print(paint(said, key), file=stream or sys.stdout, flush=True)
     if not captured:
         note(line)
 

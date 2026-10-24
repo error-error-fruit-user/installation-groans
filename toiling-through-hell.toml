@@ -211,6 +211,80 @@ weapons = "The Armoury of the Damned"
 shortcuts = "The Markings"
 play = "The Summoning"
 
+# Lines that only repeat what was just said (an empty phrase swallows them: written down, not shown)
+[[rewrite]]
+pattern = '^(Kept what .* says|Your usual loadout .* is missing.*|Data are loaded, start creating Blender stuff|Failed to register scene update handler|Read blend: .*|doomify: done)$'
+phrases = [""]
+
+# cargo's Building bar, redrawn in place
+[[rewrite]]
+pattern = '^\s*Building (\[[^\]]*\]) (\d+)/(\d+):? ?(.*)$'
+phrases = ["The forge roars {1} {2}/{3} {4}"]
+color = "33"
+
+# Doomify WaW and its Blender
+[[rewrite]]
+pattern = '^Pulling from World at War and rendering in Blender \((.*)\)\.\.\.$'
+phrases = ["Blender ({1}) is shaken awake to tear the weapons out of World at War and render them"]
+color = "35"
+
+[[rewrite]]
+pattern = "^Every weapon and sound set is pulled and rendered already, in (.*): World at War and Blender aren't needed"
+phrases = ["Every weapon already lies rendered in {1}: World at War and Blender are left to sleep"]
+color = "35"
+
+[[rewrite]]
+pattern = '^doomify: pulling (\S+)'
+phrases = ["Tearing {1} out of World at War's memory"]
+
+[[rewrite]]
+pattern = '^doomify: rendering (\S+) pickup'
+phrases = ["Painting {1} as it lies on the ground"]
+
+[[rewrite]]
+pattern = '^doomify: rendering (\S+) (\S+) (\d+) frames'
+phrases = ["Burning {1}'s {2} onto the canvas, {3} frames", "{1}'s {2}: {3} frames seared into being"]
+
+[[rewrite]]
+pattern = '^glTF import finished in (\S+)'
+phrases = ["A model is dragged up into Blender ({1})"]
+
+[[rewrite]]
+pattern = '^Blender quit'
+phrases = ["Blender falls silent. Its frames are carried off to be cut into sprites"]
+color = "35"
+
+[[rewrite]]
+pattern = '^Gathering the sounds into (.*)'
+phrases = ["Gathering the screams into {1}"]
+
+[[rewrite]]
+pattern = '^Gathered (\d+) sounds'
+phrases = ["{1} screams are caught"]
+
+[[rewrite]]
+pattern = '^Cutting the renders of (\d+) weapons into sprites, (\d+) at a time'
+phrases = ["The renders of {1} weapons go under the knife, {2} at a time"]
+color = "35"
+
+[[rewrite]]
+pattern = '^Cut (\S+) into (\d+) sprites \((\d+)/(\d+)\)'
+phrases = ["{1} is carved into {2} sprites ({3}/{4})", "The knife leaves {1} in {2} pieces ({3}/{4})"]
+color = "31"
+
+[[rewrite]]
+pattern = '^Writing (\d+) files of code and definitions'
+phrases = ["Scrawling {1} files of code and rites"]
+
+[[rewrite]]
+pattern = '^Wrote (.*)'
+phrases = ["{1} is written, every page of it"]
+color = "35"
+
+[[rewrite]]
+pattern = '^Packing (.*) into (.*)'
+phrases = ["Cramming {1} into {2}"]
+
 # What other programs print (cargo, git, Blender, tdl...), rewritten: the first rule whose
 # `pattern` (a regex) matches a line gives one of its `phrases`, `{1}`, `{2}`... being the
 # pattern's groups and `{line}` the whole line, in `color` (else `other`'s).

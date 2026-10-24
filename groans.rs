@@ -31,15 +31,25 @@ const ENV_VOICE: &str = "GROANS_VOICE";
 const ENV_COLOR: &str = "GROANS_COLOR";
 const ENV_SECTION: &str = "GROANS_SECTION";
 const ENV_CAPTURED: &str = "GROANS_CAPTURED";
-/// Said only by the outermost script.
-const OUTER_EVENTS: [&str; 3] = ["begin", "done", "journal"];
+const ENV_STARTED: &str = "GROANS_STARTED";
+/// Said only by the outermost script: one run by another opens with its own beginning (the outer
+/// one says nothing about starting it), but the end and where the journal is are the outer one's.
+const OUTER_EVENTS: [&str; 2] = ["done", "journal"];
 
 struct Journal {
     file: Option<File>,
     path: Option<PathBuf>,
     /// Lines written before the log file was opened.
     waiting: Vec<String>,
-    began: Instant,
+    /// When the outermost script began, in seconds since 1970: one clock for the whole run.
+    began: f64,
+}
+
+fn now() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|time| time.as_secs_f64())
+        .unwrap_or_default()
 }
 
 fn journal() -> &'static Mutex<Journal> {
@@ -49,7 +59,9 @@ fn journal() -> &'static Mutex<Journal> {
             file: None,
             path: None,
             waiting: Vec::new(),
-            began: Instant::now(),
+            began: env(ENV_STARTED)
+                .and_then(|started| started.parse().ok())
+                .unwrap_or_else(now),
         })
     })
 }
@@ -112,7 +124,7 @@ pub fn write(line: &str) {
     let Ok(mut journal) = journal().lock() else {
         return;
     };
-    let line = format!("[{:8.3}s] {line}", journal.began.elapsed().as_secs_f64());
+    let line = format!("[{:8.3}s] {line}", now() - journal.began);
     match &mut journal.file {
         Some(file) => {
             let _ = writeln!(file, "{line}");
@@ -453,7 +465,10 @@ pub fn rewrite(line: &str) -> (String, String) {
 /// A line of the installer's own that is no event, said the way another program's are.
 pub fn other(line: &str) {
     let (said, key) = rewrite(line);
-    println!("{}", paint(&said, &key));
+    // (a rule whose phrase is empty swallows a line that repeats what was said)
+    if !said.is_empty() {
+        println!("{}", paint(&said, &key));
+    }
     if !speaking().is_some_and(|speaking| speaking.captured) {
         write(line);
     }
@@ -478,6 +493,21 @@ pub fn child(command: &mut Command, voiced: bool) {
         command.env(ENV_SECTION, open);
     }
     command.env(ENV_CAPTURED, if voiced { "0" } else { "1" });
+    if let Some(began) = journal().lock().ok().map(|journal| journal.began) {
+        command.env(ENV_STARTED, began.to_string());
+    }
+    if !voiced {
+        // 📊 cargo draws its Building bar into a pipe too, and plainly, for the voice to redraw
+        for (name, value) in [
+            ("CARGO_TERM_PROGRESS_WHEN", "always"),
+            ("CARGO_TERM_PROGRESS_WIDTH", "80"),
+            ("CARGO_TERM_COLOR", "never"),
+        ] {
+            if std::env::var_os(name).is_none() {
+                command.env(name, value);
+            }
+        }
+    }
 }
 
 /// The pulsing line under another program's lines when they pour out faster than the voice's
@@ -588,7 +618,9 @@ pub fn run(command: &mut Command, shown: &str) -> std::io::Result<ExitStatus> {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 if !line.trim().is_empty() {
                     let (said, key) = rewrite(&line);
-                    if let Ok(mut strain) = strain.lock() {
+                    if let Ok(mut strain) = strain.lock()
+                        && !said.is_empty()
+                    {
                         strain.line(&paint(&said, &key), true);
                     }
                     write(&format!("  | {line}"));
@@ -600,7 +632,9 @@ pub fn run(command: &mut Command, shown: &str) -> std::io::Result<ExitStatus> {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if !line.trim().is_empty() {
                 let (said, key) = rewrite(&line);
-                if let Ok(mut strain) = strain.lock() {
+                if let Ok(mut strain) = strain.lock()
+                    && !said.is_empty()
+                {
                     strain.line(&paint(&said, &key), false);
                 }
                 write(&format!("  | {line}"));
