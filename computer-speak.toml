@@ -1,0 +1,25 @@
+# Computer Speak: the install reported in a plain, formal register, one line per step. Installers
+# speak in it when given --computer-speak.
+#
+# Every event is a list of phrases; each time it happens one is picked at random. The installer
+# fills in the {placeholders} each event lists; a phrase can leave any of them out.
+version = 1
+name = "Computer Speak"
+
+[phrases]
+begin = ["Installation of {what} initiated. Target directory: {place}."]
+download = ["Downloading {name} ({size})."]
+downloaded = ["Download of {name} complete."]
+verified = ["Integrity check passed for {name}."]
+corrupted = ["Integrity check failed for {name}: checksum mismatch. The file has been discarded."]
+found = ["Located {what} at {place}."]
+unpack = ["Extracting {name} to {place}."]
+copy = ["Copying {what} to {place}."]
+skip = ["{what} is already present at {place}. No action taken."]
+link = ["Configured {what} at {place}."]
+path = ["Added {place} to the PATH environment variable."]
+run = ["Executing: {command}"]
+ran = ["Process completed successfully: {command}"]
+problem = ["Error: {problem}"]
+done = ["Installation of {what} completed successfully."]
+journal = ["A complete log of this operation has been written to {place}."]
