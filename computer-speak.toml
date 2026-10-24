@@ -6,6 +6,8 @@
 version = 1
 name = "Computer Speak"
 
+# Computer Speak never interjects (see toiling-through-hell.toml's [interjection]).
+
 [phrases]
 begin = ["Installation of {what} initiated. Target directory: {place}."]
 download = ["Downloading {name} ({size})."]
