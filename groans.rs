@@ -711,3 +711,62 @@ macro_rules! note {
         $crate::journal::write(&format!("  {}", format!($($words)*)))
     };
 }
+
+/// What earlier runs of an install finished, kept in `install.state` in its artifacts (a step per
+/// line), so running it again picks up where it left off: a finished step is skipped (and its
+/// results, like a song the user has since changed, left alone), unless `--reinstall` asks for
+/// everything again.
+pub struct Steps {
+    path: PathBuf,
+    finished: Vec<String>,
+    reinstall: bool,
+}
+
+impl Steps {
+    /// The steps finished in the install whose artifacts are `art`.
+    pub fn open(art: &Path, reinstall: bool) -> Self {
+        let path = art.join("install.state");
+        let finished = fs::read_to_string(&path)
+            .map(|text| text.lines().map(str::to_string).collect())
+            .unwrap_or_default();
+        Steps {
+            path,
+            finished,
+            reinstall,
+        }
+    }
+
+    /// Whether `step` was finished by an earlier run (never, with `--reinstall`).
+    pub fn done(&self, step: &str) -> bool {
+        !self.reinstall && self.finished.iter().any(|finished| finished == step)
+    }
+
+    /// The steps earlier runs finished, for the plan (none with `--reinstall`).
+    pub fn earlier(&self) -> Vec<&str> {
+        if self.reinstall {
+            return Vec::new();
+        }
+        self.finished.iter().map(String::as_str).collect()
+    }
+
+    /// Records `step` as finished.
+    pub fn finish(&mut self, step: &str) {
+        if !self.finished.iter().any(|finished| finished == step) {
+            self.finished.push(step.to_string());
+        }
+        if let Some(folder) = self.path.parent() {
+            let _ = fs::create_dir_all(folder);
+        }
+        let _ = fs::write(&self.path, self.finished.join("\n") + "\n");
+        write(&format!("  finished: {step}"));
+    }
+
+    /// Says that `step` (`what`, at `place`) is skipped, an earlier run having finished it.
+    pub fn skip(&self, what: &str, place: &str) {
+        tell(
+            "skip",
+            &[("what", what), ("place", place)],
+            &format!("{what} is done already, at {place} (--reinstall does it again)"),
+        );
+    }
+}
