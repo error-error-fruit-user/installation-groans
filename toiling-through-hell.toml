@@ -285,6 +285,10 @@ color = "35"
 pattern = '^Packing (.*) into (.*)'
 phrases = ["Cramming {1} into {2}"]
 
+[[rewrite]]
+pattern = '^Packed (\d+)/(\d+) files'
+phrases = ["{1} of {2} bodies crammed into the pit"]
+
 # What other programs print (cargo, git, Blender, tdl...), rewritten: the first rule whose
 # `pattern` (a regex) matches a line gives one of its `phrases`, `{1}`, `{2}`... being the
 # pattern's groups and `{line}` the whole line, in `color` (else `other`'s).
