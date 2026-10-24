@@ -183,6 +183,21 @@ other = "2;31"
 section = "1;33"
 warning = "1;31"
 
+# When another program's lines pour out faster than `threshold` a second, a line under them pulses
+# with how hard the machine is labouring: the `frames` in turn, `{bar}` filled by the rate (up to
+# `width` cells), throbbing through the `colors`. Only on a terminal; a voice without [strain]
+# keeps calm.
+[strain]
+threshold = 8
+width = 16
+frames = [
+    "♥ {bar} the machine's heart pounds",
+    "♡ {bar} the fans scream",
+    "♥ {bar} the processor sweats blood",
+    "♡ {bar} it cannot stop now",
+]
+colors = ["1;31", "31", "2;31", "31"]
+
 # What each part of the work is called in its --- Section --- separator
 [sections]
 warning = "Warning"

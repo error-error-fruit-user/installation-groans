@@ -246,6 +246,48 @@ def rewrite(line):
     return fallback.get("format", "{line}").replace("{line}", line.rstrip()), "other"
 
 
+class Strain:
+    """The pulsing line under another program's lines when they pour out faster than the voice's
+    [strain] `threshold` a second: how hard the machine labours, redrawn under each new line."""
+
+    def __init__(self):
+        self.config = voice.get("strain", {}) if sys.stdout.isatty() else {}
+        self.times = []
+        self.shown = False
+        self.began = time.monotonic()
+
+    def line(self, text, stream=None):
+        """Prints `text`, with the pulsing line under it while the lines come thick and fast."""
+        stream = stream or sys.stdout
+        now = time.monotonic()
+        self.times = [moment for moment in self.times if now - moment < 1.0] + [now]
+        if self.shown:
+            sys.stdout.write("\r\033[K")
+        print(text, file=stream, flush=True)
+        threshold = float(self.config.get("threshold", 0) or 0)
+        frames = self.config.get("frames") or []
+        if not threshold or not frames or len(self.times) < threshold:
+            self.shown = False
+            return
+        width = int(self.config.get("width", 16))
+        filled = min(width, int(len(self.times) / threshold * width / 2) + 1)
+        beat = int((now - self.began) / 0.15)
+        bar = "█" * filled + "░" * (width - filled)
+        frame = frames[beat % len(frames)].replace("{bar}", bar)
+        colors = self.config.get("colors") or ["31"]
+        code = colors[beat % len(colors)]
+        sys.stdout.write(f"\033[{code}m{frame}\033[0m" if colored else frame)
+        sys.stdout.flush()
+        self.shown = True
+
+    def clear(self):
+        """Takes the pulsing line away, once the program is done."""
+        if self.shown:
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
+            self.shown = False
+
+
 def outer_env(voiced):
     """The environment for a script or program this one runs."""
     env = dict(os.environ)
@@ -275,6 +317,7 @@ def run(command, cwd=None, voiced=False, quiet_run=False):
         process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT)
         pending, raw = b"", False
+        strain = Strain()
         while True:
             chunk = process.stdout.read1(4096) if hasattr(process.stdout, "read1") \
                 else process.stdout.readline()
@@ -290,18 +333,20 @@ def run(command, cwd=None, voiced=False, quiet_run=False):
                     raw = False
                 elif text.strip():
                     said, key = rewrite(text)
-                    print(paint(said, key), flush=True)
+                    strain.line(paint(said, key))
                     note("  | " + text)
             # 💬 something waiting for an answer has no newline yet: shown as it is
             if pending and pending.rstrip().endswith((b":", b"?", b"]")) and not raw:
+                strain.clear()
                 sys.stdout.write(pending.decode(errors="replace"))
                 sys.stdout.flush()
                 note("  | " + pending.decode(errors="replace"))
                 pending, raw = b"", True
         if pending.strip():
             said, key = rewrite(pending.decode(errors="replace"))
-            print(paint(said, key), flush=True)
+            strain.line(paint(said, key))
             note("  | " + pending.decode(errors="replace"))
+        strain.clear()
         code = process.wait()
     note(f"  ended with code {code}")
     if code:

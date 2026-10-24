@@ -480,6 +480,95 @@ pub fn child(command: &mut Command, voiced: bool) {
     command.env(ENV_CAPTURED, if voiced { "0" } else { "1" });
 }
 
+/// The pulsing line under another program's lines when they pour out faster than the voice's
+/// `[strain]` `threshold` a second: how hard the machine labours, redrawn under each new line.
+struct Strain {
+    times: Vec<Instant>,
+    shown: bool,
+    began: Instant,
+    on_terminal: bool,
+}
+
+impl Strain {
+    fn new() -> Self {
+        Strain {
+            times: Vec::new(),
+            shown: false,
+            began: Instant::now(),
+            on_terminal: std::io::stdout().is_terminal(),
+        }
+    }
+
+    /// Prints `text` (on stderr with `error`), with the pulsing line under it while the lines come
+    /// thick and fast.
+    fn line(&mut self, text: &str, error: bool) {
+        let now = Instant::now();
+        self.times
+            .retain(|moment| now.duration_since(*moment).as_secs_f64() < 1.0);
+        self.times.push(now);
+        let mut out = std::io::stdout();
+        if self.shown {
+            let _ = write!(out, "\r\x1b[K");
+            let _ = out.flush();
+        }
+        if error {
+            eprintln!("{text}");
+        } else {
+            println!("{text}");
+        }
+        let strain = voice().and_then(|voice| voice.get("strain"));
+        let threshold = strain
+            .and_then(|strain| strain.get("threshold"))
+            .and_then(|value| value.as_integer().map(|n| n as f64).or(value.as_float()))
+            .unwrap_or(0.0);
+        let frames: Vec<&str> = strain
+            .and_then(|strain| strain.get("frames"))
+            .and_then(toml::Value::as_array)
+            .map(|frames| frames.iter().filter_map(toml::Value::as_str).collect())
+            .unwrap_or_default();
+        if !self.on_terminal
+            || threshold <= 0.0
+            || frames.is_empty()
+            || (self.times.len() as f64) < threshold
+        {
+            self.shown = false;
+            return;
+        }
+        let width = strain
+            .and_then(|strain| strain.get("width"))
+            .and_then(toml::Value::as_integer)
+            .unwrap_or(16)
+            .max(1) as usize;
+        let filled = width.min((self.times.len() as f64 / threshold * width as f64 / 2.0) as usize + 1);
+        let beat = (now.duration_since(self.began).as_secs_f64() / 0.15) as usize;
+        let bar = "█".repeat(filled) + &"░".repeat(width - filled);
+        let frame = frames[beat % frames.len()].replace("{bar}", &bar);
+        let colors: Vec<&str> = strain
+            .and_then(|strain| strain.get("colors"))
+            .and_then(toml::Value::as_array)
+            .map(|colors| colors.iter().filter_map(toml::Value::as_str).collect())
+            .unwrap_or_default();
+        let colored = speaking().is_some_and(|speaking| speaking.colored);
+        if colored && !colors.is_empty() {
+            let _ = write!(out, "\x1b[{}m{frame}\x1b[0m", colors[beat % colors.len()]);
+        } else {
+            let _ = write!(out, "{frame}");
+        }
+        let _ = out.flush();
+        self.shown = true;
+    }
+
+    /// Takes the pulsing line away, once the program is done.
+    fn clear(&mut self) {
+        if self.shown {
+            let mut out = std::io::stdout();
+            let _ = write!(out, "\r\x1b[K");
+            let _ = out.flush();
+            self.shown = false;
+        }
+    }
+}
+
 /// Runs `command` (shown as `shown`), saying so, with what it prints rewritten in the voice and
 /// written down. Returns how it ended.
 pub fn run(command: &mut Command, shown: &str) -> std::io::Result<ExitStatus> {
@@ -490,13 +579,18 @@ pub fn run(command: &mut Command, shown: &str) -> std::io::Result<ExitStatus> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    // 🧵 stderr in a thread of its own, so neither stream can stall the other
+    // 🧵 stderr in a thread of its own, so neither stream can stall the other; both draw through
+    // the one strain line
+    let strain = std::sync::Arc::new(Mutex::new(Strain::new()));
     let errors = process.stderr.take().map(|stderr| {
+        let strain = strain.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                 if !line.trim().is_empty() {
                     let (said, key) = rewrite(&line);
-                    eprintln!("{}", paint(&said, &key));
+                    if let Ok(mut strain) = strain.lock() {
+                        strain.line(&paint(&said, &key), true);
+                    }
                     write(&format!("  | {line}"));
                 }
             }
@@ -506,13 +600,18 @@ pub fn run(command: &mut Command, shown: &str) -> std::io::Result<ExitStatus> {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if !line.trim().is_empty() {
                 let (said, key) = rewrite(&line);
-                println!("{}", paint(&said, &key));
+                if let Ok(mut strain) = strain.lock() {
+                    strain.line(&paint(&said, &key), false);
+                }
                 write(&format!("  | {line}"));
             }
         }
     }
     if let Some(errors) = errors {
         let _ = errors.join();
+    }
+    if let Ok(mut strain) = strain.lock() {
+        strain.clear();
     }
     let status = process.wait()?;
     write(&format!("  ended: {status}"));
