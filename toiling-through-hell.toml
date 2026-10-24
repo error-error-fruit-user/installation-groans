@@ -114,3 +114,157 @@ journal = [
     "The record of this ordeal is kept at {place}.",
     "If you want to relive it, it's all in {place}.",
 ]
+# shortcuts are made for {what} at {place}
+shortcut = [
+    "{what} is branded onto {place}, a sigil to call it back.",
+    "A mark is burned into {place}: {what} answers to it now.",
+]
+
+# {what} can be played now, with {command}
+ready = [
+    "{what} has risen and waits for you. Call it up with: {command}",
+    "The ritual is complete: {what} can be played. Speak the words: {command}",
+]
+# the one question before the install, which always ends in [y/n]
+confirm = [
+    "Do you consent to the descent? [y/n]",
+    "Will you go down into the pit? [y/n]",
+    "Sign the pact in blood? [y/n]",
+    "The gates are open. Do you step through? [y/n]",
+]
+# an answer that was neither y nor n
+unclear = ["The pit doesn't understand. y or n; after a y, any of the flags above (y --flag ...)"]
+# flags given at the question that the script doesn't have: {flags}
+unknown_flags = ["No such incantation here: {flags}"]
+# the answer was no
+declined = [
+    "You turn back at the gates. Nothing was done.",
+    "The pact goes unsigned. Nothing was done.",
+]
+# {what} is found running, so {doing}
+detected = [
+    "{what} stirs in the dark. It is awake, so: {doing}.",
+    "Something moves below: {what} is running, so {doing}.",
+]
+# {what} isn't running, so {instead}
+undetected = [
+    "{what} sleeps; not a sign of it in the dark. {instead}",
+    "No trace of {what} down here. {instead}",
+]
+# The colour of each event's line, as terminal SGR codes (31 red, 33 yellow, 35 magenta, 1 bold,
+# 2 dim; joined with ;): embers and blood. `other` is what other programs print, `section` the
+# --- Section --- separators, `warning` the warning before the question.
+[colors]
+begin = "1;31"
+download = "33"
+downloaded = "33"
+verified = "33"
+corrupted = "1;31"
+found = "35"
+unpack = "35"
+copy = "31"
+skip = "2;31"
+link = "35"
+path = "35"
+run = "2;33"
+ran = "2;33"
+problem = "1;31"
+done = "1;33"
+journal = "2;31"
+shortcut = "35"
+ready = "1;32"
+detected = "1;35"
+undetected = "2;33"
+confirm = "1;31"
+unclear = "33"
+unknown_flags = "33"
+declined = "2"
+other = "2;31"
+section = "1;33"
+warning = "1;31"
+
+# What each part of the work is called in its --- Section --- separator
+[sections]
+warning = "Warning"
+build = "The Forge"
+pack = "The Ossuary"
+install = "The Descent"
+download = "The Offering"
+setup = "The Binding"
+song = "The Hymn"
+weapons = "The Armoury of the Damned"
+shortcuts = "The Markings"
+play = "The Summoning"
+
+# What other programs print (cargo, git, Blender, tdl...), rewritten: the first rule whose
+# `pattern` (a regex) matches a line gives one of its `phrases`, `{1}`, `{2}`... being the
+# pattern's groups and `{line}` the whole line, in `color` (else `other`'s).
+[[rewrite]]
+pattern = '^\s*Compiling (\S+) v(\S+)'
+phrases = [
+    "Forging {1} {2} in the furnace",
+    "Hammering {1} {2} into shape on the anvil",
+    "{1} {2} is thrown into the fire",
+    "Smelting {1} {2} down from raw ore",
+]
+color = "2;33"
+
+[[rewrite]]
+pattern = '^\s*Finished `?(\S+?)`? profile.* in (\S+)'
+phrases = ["The forge cools: the {1} build is done, {2} in the flames"]
+color = "33"
+
+[[rewrite]]
+pattern = '^\s*(?:Downloading|Downloaded) (\S+) v(\S+)'
+phrases = ["Prying {1} {2} loose from the crates below", "{1} {2} is dug up from the registry's grave"]
+color = "2;33"
+
+[[rewrite]]
+pattern = '^\s*(?:Updating|Locking|Adding|Fetching|Checking|Blocking|Packaging|Running|Installing|Replacing|Installed) (.*)'
+phrases = ["The machine grinds on: {line}"]
+
+[[rewrite]]
+pattern = '^\s*warning: (.*)'
+phrases = ["A whisper of warning from the forge: {1}"]
+color = "33"
+
+[[rewrite]]
+pattern = '^\s*error(?:\[\w+\])?: (.*)'
+phrases = ["The forge spits blood: {1}"]
+color = "1;31"
+
+[[rewrite]]
+pattern = '^Fra:(\d+)'
+phrases = ["Frame {1} is seared onto the canvas"]
+
+[[rewrite]]
+pattern = "^Saved: '?(.*?)'?$"
+phrases = ["{1} is branded and kept"]
+
+[[rewrite]]
+pattern = "^Cloning into '(.*)'"
+phrases = ["Tearing a copy of {1} out of the wire"]
+
+[[rewrite]]
+pattern = '^Made the profile (.*)'
+phrases = ["The profile {1} rises from the ground"]
+color = "35"
+
+[[rewrite]]
+pattern = '^Took again the wads of the profile (.*)'
+phrases = ["The profile {1} is fed its wads once more"]
+color = "35"
+
+[[rewrite]]
+pattern = '^Playing (.*) from now on'
+phrases = ["{1} will play from now on: the hymn of the damned"]
+color = "35"
+
+[[rewrite]]
+pattern = '^Kept what (.*) says'
+phrases = ["The pact in {1} is sealed into tdl"]
+color = "35"
+
+# Any other line: still from below
+[fallback]
+format = "  ⸸ {line}"

@@ -7,7 +7,21 @@ The voices the installers of these projects speak in while they work: what they 
 - [`toiling-through-hell.toml`](toiling-through-hell.toml): **Toiling Through Hell**, the install as your computer's descent through hell, dragging every file up out of the pit. The default.
 - [`computer-speak.toml`](computer-speak.toml): **Computer Speak**, a plain and formal line per step, for those who pass `--computer-speak`.
 
-`tdl-install`, `nacht-install` and Nacht des Schreckens' `doomify.py` take them from a checkout of this repository beside theirs when there is one, or else from GitHub, and the installers build them in. The `{placeholders}` each event fills in are listed above it in the files. A new voice is a new TOML with the same events.
+Every voice also has:
+
+- `[colors]`: each event's colour (terminal SGR codes), and `other` (what other programs print), `section` and `warning`.
+- `[sections]`: the names of the parts of the work, shown as yellow `--- Section ---` separators (`build`, `pack`, `install`, `download`, `setup`, `song`, `weapons`, `shortcuts`, `play`).
+- `[[rewrite]]`: rules for what other programs print (cargo, git, Blender, tdl...): a regex `pattern`, `phrases` with `{1}`, `{2}`... for its groups and `{line}` for the line, and a `color`. A line no rule catches gets the `[fallback]` `format`, so nothing comes through untouched.
+- The question every install asks once, `confirm` (it always ends in `[y/n]`), with `unclear`, `unknown_flags` and `declined` for what follows a bad answer or a no.
+
+Two modules speak them, so every installer and script does it the same way:
+
+- [`groans.py`](groans.py), for the Python scripts (`publish.py`, `publish-install.py`, `appimage.py`, `doomify.py`): `start`, `say`, `section`, `warning`, `confirm`, `run` (another program, rewritten in the voice), `capture`, `built`, `shortcut` and `finish`.
+- [`groans.rs`](groans.rs), built into the Rust installers (`tdl-install`, `nacht-install`) as their journal: the same, as `tell`, `section`, `warning`, `confirm`, `run`, `shortcut`, `finish`, and `say!`/`warn!`/`note!`.
+
+A script run by another (publish.py by publish-install.py, tdl-install by nacht-install) learns it from the environment (`GROANS_JOURNAL`, `GROANS_DEPTH`, `GROANS_VOICE`, `GROANS_COLOR`, `GROANS_SECTION`, `GROANS_CAPTURED`): it speaks in the same voice and colours, writes into the same log, says nothing the outer one already says (its beginning and end, where the log is, its warning, a section already open), and asks nothing.
+
+The projects that install things carry this repository as a git submodule, `installation-groans/`, and read it from there (else from a checkout beside them, else GitHub).
 
 ## License
 

@@ -25,3 +25,75 @@ ran = ["Process completed successfully: {command}"]
 problem = ["Error: {problem}"]
 done = ["Installation of {what} completed successfully."]
 journal = ["A complete log of this operation has been written to {place}."]
+shortcut = ["Created a shortcut for {what} at {place}."]
+
+ready = ["{what} is ready to play: {command}"]
+confirm = ["Are you sure? [y/n]"]
+unclear = ["y or n; after a y, any of the flags above (y --flag ...)"]
+unknown_flags = ["Not one of this script's flags: {flags}"]
+declined = ["Nothing was done."]
+detected = ["Detected {what}: {doing}."]
+undetected = ["{what} was not detected. {instead}"]
+# The colour of each event's line, as terminal SGR codes (36 cyan, 32 green, 34 blue, 31 red,
+# 1 bold, 2 dim; joined with ;): a terminal's own. `other` is what other programs print, `section`
+# the --- Section --- separators, `warning` the warning before the question.
+[colors]
+begin = "1;36"
+download = "36"
+downloaded = "36"
+verified = "32"
+corrupted = "1;31"
+found = "34"
+unpack = "34"
+copy = "34"
+skip = "2"
+link = "34"
+path = "34"
+run = "2;36"
+ran = "2;32"
+problem = "1;31"
+done = "1;32"
+journal = "2"
+shortcut = "34"
+ready = "1;32"
+detected = "1;32"
+undetected = "2;33"
+confirm = "1;36"
+unclear = "33"
+unknown_flags = "33"
+declined = "2"
+other = "2"
+section = "1;33"
+warning = "1;31"
+
+# What each part of the work is called in its --- Section --- separator
+[sections]
+warning = "Warning"
+build = "Build"
+pack = "Packaging"
+install = "Installation"
+download = "Downloads"
+setup = "Configuration"
+song = "Audio"
+weapons = "Weapons"
+shortcuts = "Shortcuts"
+play = "Launch"
+
+# What other programs print is left as it is, only coloured: warnings and errors stand out.
+[[rewrite]]
+pattern = '^\s*warning: '
+phrases = ["{line}"]
+color = "33"
+
+[[rewrite]]
+pattern = '^\s*error(?:\[\w+\])?: '
+phrases = ["{line}"]
+color = "1;31"
+
+[[rewrite]]
+pattern = '^\s*Finished '
+phrases = ["{line}"]
+color = "32"
+
+[fallback]
+format = "  {line}"
