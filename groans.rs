@@ -564,9 +564,49 @@ fn exec_quoted(arg: &str) -> String {
     quoted
 }
 
+/// The user who ran this with sudo (`SUDO_USER`, while this runs as root) and their home: whom an
+/// install's songs, settings and shortcuts are for, rather than root.
+pub fn sudo_user() -> Option<(String, PathBuf)> {
+    if cfg!(windows) {
+        return None;
+    }
+    let user = env("SUDO_USER")?;
+    let id = Command::new("id").arg("-u").output().ok()?;
+    if id.stdout.trim_ascii() != b"0" {
+        return None;
+    }
+    let entry = Command::new("getent").args(["passwd", &user]).output().ok()?;
+    let home = String::from_utf8_lossy(&entry.stdout)
+        .trim()
+        .split(':')
+        .nth(5)?
+        .to_string();
+    (!home.is_empty()).then(|| (user, PathBuf::from(home)))
+}
+
+/// The home of whom this install is for: the sudo user's, else `HOME`.
+pub fn home() -> Option<PathBuf> {
+    sudo_user()
+        .map(|(_, home)| home)
+        .or_else(|| env("HOME").map(PathBuf::from))
+}
+
+/// Gives `path` (and everything in it) to the sudo user, if this runs for one, so what is made for
+/// them as root stays theirs to change.
+pub fn give_back(path: &Path) {
+    if let Some((user, _)) = sudo_user() {
+        let given = Command::new("chown").arg("-R").arg(&user).arg(path).status();
+        write(&format!("  gave {} to {user}: {given:?}", path.display()));
+    }
+}
+
 /// The desktop: xdg-user-dir's, else ~/Desktop; `None` if there is none.
 fn desktop_folder() -> Option<PathBuf> {
-    let home = PathBuf::from(env("HOME")?);
+    let home = home()?;
+    if sudo_user().is_some() {
+        let desktop = home.join("Desktop");
+        return desktop.is_dir().then_some(desktop);
+    }
     let found = Command::new("xdg-user-dir")
         .arg("DESKTOP")
         .output()
@@ -645,8 +685,9 @@ pub fn shortcut(title: &str, id: &str, command: &[String], comment: &str, deskto
         exec.replace('\\', "\\\\").replace('%', "%%")
     );
     let data = env("XDG_DATA_HOME")
+        .filter(|_| sudo_user().is_none())
         .map(PathBuf::from)
-        .or_else(|| env("HOME").map(|home| PathBuf::from(home).join(".local").join("share")));
+        .or_else(|| home().map(|home| home.join(".local").join("share")));
     let mut places: Vec<(Option<PathBuf>, bool)> = Vec::new();
     if desktop {
         places.push((desktop_folder(), true));
@@ -678,6 +719,7 @@ pub fn shortcut(title: &str, id: &str, command: &[String], comment: &str, deskto
                 .stderr(Stdio::null())
                 .status();
         }
+        give_back(&path);
         write(&format!("made the shortcut {}: {exec}", path.display()));
         let place = path.display().to_string();
         tell(
