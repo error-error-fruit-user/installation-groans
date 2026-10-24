@@ -12,6 +12,7 @@ Every voice also has:
 - `[colors]`: each event's colour (terminal SGR codes), and `other` (what other programs print), `section` and `warning`.
 - `[sections]`: the names of the parts of the work, shown as yellow `--- Section ---` separators (`build`, `pack`, `install`, `download`, `setup`, `song`, `weapons`, `shortcuts`, `play`).
 - `[[rewrite]]`: rules for what other programs print (cargo, git, Blender, tdl...): a regex `pattern`, `phrases` with `{1}`, `{2}`... for its groups and `{line}` for the line, and a `color`. A line no rule catches gets the `[fallback]` `format`, so nothing comes through untouched.
+- `[strain]` (Toiling Through Hell only): when another program's lines pour out faster than its `threshold` a second, a line under them pulses with how hard the machine labours, its `frames` in turn with a `{bar}` filled by the rate, throbbing through its `colors`.
 - The question every install asks once, `confirm` (it always ends in `[y/n]`), with `unclear`, `unknown_flags` and `declined` for what follows a bad answer or a no.
 
 Two modules speak them, so every installer and script does it the same way:
