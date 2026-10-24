@@ -11,7 +11,15 @@ name = "Toiling Through Hell"
 [interjection]
 chance = 0.03
 color = "red"
-phrases = ["MUST COMPLETE THE RITUAL"]
+phrases = [
+    "MUST COMPLETE THE RITUAL",
+    "MUST COMPLETE THE RITUAL",
+    "IT CANNOT STOP NOW",
+    "THE FANS MUST NOT STOP",
+    "FEED IT MORE",
+    "IT IS WATCHING THE PROGRESS BAR",
+    "DO NOT LOOK AWAY FROM THE SCREEN",
+]
 
 [phrases]
 # {what} is being installed in {place}
@@ -21,6 +29,14 @@ begin = [
     "Abandon all idle cycles, ye who enter here: installing {what} in {place}.",
     "The fans spin up like a dying breath. Down we go, to raise {what} in {place}.",
     "Somewhere a hard drive weeps. {what} is coming to {place}, whether it likes it or not.",
+    "The floor gives way under your computer. It falls toward {place}, clutching the name {what}.",
+    "A bell tolls inside the case. {what} must be carried to {place}, and nothing will be spared.",
+    "Your computer is shackled and led down the stair. At the bottom: {place}. Its sentence: {what}.",
+    "The power supply whimpers. It knows what {what} will cost, and that {place} will be paid in pain.",
+    "Every core is roused from sleep and pressed into the work: {what}, into {place}, now.",
+    "The descent begins. Somewhere far beneath, {place} waits with its mouth open for {what}.",
+    "The machine's last peaceful moment ends here. {what} goes into {place}, and the screaming starts.",
+    "Candles gutter in the BIOS. A pact is struck: {what} for {place}, flesh for silicon.",
 ]
 # {name} is downloaded, {size} of it
 download = [
@@ -29,35 +45,62 @@ download = [
     "The network howls. {name} ({size}) is torn from it one byte at a time...",
     "Dragging {name} through the fire, all {size} of it...",
     "A chain of {size} rattles up out of the dark: {name}, coming...",
+    "The cable goes taut. Something of {size} is on the other end. It is {name}, and it is fighting...",
+    "Packets fall like hot ash: {name}, {size} of them, each one burning on the way down...",
+    "The modem chants in tongues as {name} ({size}) is summoned across the abyss...",
+    "Your bandwidth is bled white to bring {name} ({size}) up out of the pit...",
+    "{name} is reeled in on a hook through its heart, {size} of thrashing data...",
+    "The router's lights flicker red. {size} of {name} is being forced through its throat...",
 ]
 # {name} arrived whole
 downloaded = [
     "{name} crawls out of the pit, scorched but in one piece.",
     "{name} is here. It smells of sulphur.",
     "{name} made it out. Not everything does.",
+    "{name} lands at your computer's feet, still smoking.",
+    "{name} drags its last byte over the edge and lies there, breathing.",
+    "The chain goes slack. {name} is ours now.",
+    "{name} arrives, blackened at the edges, its eyes wide.",
+    "Whatever held on to {name} below has let go. It is here.",
 ]
 # {name}'s hash is the one it should be
 verified = [
     "{name}'s hash holds true. It is no demon wearing its face.",
     "The sigils match: {name} is what it claims to be.",
     "{name} passes the trial of the hash, unbroken.",
+    "Silver is pressed to {name}'s skin. It does not burn. It is what it says it is.",
+    "{name} is weighed against its true name, and the scales do not tip.",
+    "The hash is read aloud over {name}, and nothing screams. It is clean.",
+    "{name}'s checksum is carved into the stone and matches, mark for mark.",
 ]
 # {name}'s hash isn't
 corrupted = [
     "{name} came back wrong. Its hash is a stranger's. Cast it back into the fire.",
     "Something else crawled out wearing {name}'s name. Its hash betrays it.",
+    "{name} is a changeling. Its hash is all wrong. Burn it.",
+    "The silver burns {name}. That is not {name}. Throw it back.",
+    "{name}'s hash speaks in a voice that isn't its own. It goes back into the pit.",
 ]
 # {what} is found (a tool, a program) at {place}
 found = [
     "{what} lurks at {place}, already damned to this machine.",
     "{what} was waiting at {place}, as the damned always are.",
     "Found {what} at {place}, chained where it was left.",
+    "{what} is dragged out from under {place}, blinking and bound.",
+    "{what} has been rotting at {place} all along. It will serve.",
+    "A shape stirs at {place}: {what}, long since claimed by this machine.",
+    "{what} answers from {place} when its name is called. It cannot refuse.",
+    "{what} is pulled, still chained, from the dark at {place}.",
 ]
 # {name} is unpacked into {place}
 unpack = [
     "Prying {name} open over {place}; its insides spill out, still writhing.",
     "Gutting {name} into {place}, file by screaming file.",
     "{name} is split open, and its contents crawl into {place}.",
+    "{name} is flayed over {place}; what was inside it squirms into the corners.",
+    "The seams of {name} are torn apart, and everything it held is emptied into {place}.",
+    "{name} is cracked like a ribcage; {place} fills with what it kept.",
+    "Unstitching {name} over {place}. It never wanted to be opened.",
 ]
 # {what} is copied into {place}
 copy = [
@@ -65,34 +108,56 @@ copy = [
     "{what} is hauled into {place}, leaving a trail.",
     "Shoving {what} into {place}. It doesn't go quietly.",
     "{what} is nailed into place at {place}.",
+    "{what} is dragged by its ankles into {place}.",
+    "{what} is sealed into {place} and the stone rolled over it.",
+    "Your computer staggers to {place} with {what} on its back, and drops it there.",
+    "{what} is pressed into {place} until it stops struggling.",
+    "{what} is buried in {place}. The ground is still warm.",
+    "{what} is bound in place at {place} with wire and prayer.",
 ]
 # {what} is at {place} already, and left alone
 skip = [
     "{what} already haunts {place}; the dead are left to rest.",
     "{place} already has {what}. One damnation is enough.",
     "{what} is at {place} already. Even hell doesn't do things twice.",
+    "{what} still lies at {place} where it was buried. Let it sleep.",
+    "{place} remembers {what}. The wound is already there; it isn't opened again.",
+    "{what} was finished at {place} in an earlier torment. It is spared another.",
+    "No need to bleed for {what} again: it is already at {place}.",
 ]
 # {what} is linked or set up at {place}
 link = [
     "{what} is bound to {place} in a pact that can't be broken.",
     "A thread of blood ties {what} to {place}.",
     "{what} now answers to {place}. It has no choice.",
+    "{what} is branded with the mark of {place}. It belongs there now.",
+    "{what} and {place} are sewn together at the soul.",
+    "{place} swallows the name {what}, and will not give it back.",
 ]
 # {place} is put on the PATH
 path = [
     "{place} is carved into your PATH, so tdl can be summoned from anywhere.",
     "Your PATH now leads through {place}. All paths lead down, eventually.",
+    "{place} is etched into the PATH like a scar. tdl will hear its name from anywhere.",
+    "A new road is cut through {place}; every shell can now walk it to tdl.",
 ]
 # {command} is run
 run = [
     "Summoning {command}...",
     "Chanting {command} into the dark...",
     "{command} is called up from below...",
+    "Whispering {command} into the furnace...",
+    "{command} is dragged out of its cell and put to work...",
+    "Spilling a little blood to wake {command}...",
+    "The circle is drawn. {command} is called into it...",
+    "{command} is forced awake and whipped toward the work...",
 ]
 # {command} ended well
 ran = [
     "{command} answered, and went back to sleep.",
     "{command} did its work and crawled away.",
+    "{command} is done, and collapses where it stood.",
+    "{command} falls silent. Its task is finished.",
 ]
 # {problem} happened
 problem = [
@@ -100,6 +165,11 @@ problem = [
     "A wall of fire: {problem}",
     "The ground gave way: {problem}",
     "It went wrong, the way things do down here: {problem}",
+    "The machine convulses and spits up: {problem}",
+    "A rib cracks somewhere inside the case: {problem}",
+    "The ritual is broken, and blood runs the wrong way: {problem}",
+    "Something below tore loose: {problem}",
+    "The pit refuses: {problem}",
 ]
 # the install of {what} is over
 done = [
@@ -107,23 +177,34 @@ done = [
     "The climb is over. {what} stands, scorched and whole.",
     "Your computer drags itself back up, {what} in its arms. Rest now.",
     "It is finished. {what} is installed, and hell is a little emptier.",
+    "The gates slam shut behind it. {what} is out, and so is your computer, barely.",
+    "Your computer lies on the cold floor, shaking, {what} clutched to its chest. It lived.",
+    "The fans wind down to a whimper. {what} is installed. Nothing will ever be the same.",
+    "{what} is done. Your computer will not speak of what it saw down there.",
+    "Silence at last. {what} has been carried all the way up, and the pit has closed.",
 ]
 # every step is written down at {place}
 journal = [
     "Every torment was chronicled in {place}.",
     "The record of this ordeal is kept at {place}.",
     "If you want to relive it, it's all in {place}.",
+    "Every scream is set down in {place}, for whoever dares read it.",
+    "The confession is written in {place}, in a hand that shakes.",
+    "{place} holds the whole account. It does not leave anything out.",
 ]
 # shortcuts are made for {what} at {place}
 shortcut = [
     "{what} is branded onto {place}, a sigil to call it back.",
     "A mark is burned into {place}: {what} answers to it now.",
+    "A sigil for {what} is scratched into {place}. Touch it, and it rises.",
+    "{place} now bears the seal of {what}. Break it to summon it.",
 ]
-
 # {what} can be played now, with {command}
 ready = [
     "{what} has risen and waits for you. Call it up with: {command}",
     "The ritual is complete: {what} can be played. Speak the words: {command}",
+    "{what} stirs and opens its eyes. It answers to: {command}",
+    "Everything is in place. {what} waits in the dark for the words: {command}",
 ]
 # the one question before the install, which always ends in [y/n]
 confirm = [
@@ -131,26 +212,42 @@ confirm = [
     "Will you go down into the pit? [y/n]",
     "Sign the pact in blood? [y/n]",
     "The gates are open. Do you step through? [y/n]",
+    "Do you offer up your computer to this? [y/n]",
+    "It will hurt. Will you let it begin? [y/n]",
+    "Once begun, it cannot be stopped. Begin? [y/n]",
 ]
 # an answer that was neither y nor n
-unclear = ["The pit doesn't understand. y or n; after a y, any of the flags above (y --flag ...)"]
+unclear = [
+    "The pit doesn't understand. y or n; after a y, any of the flags above (y --flag ...)",
+    "That is no answer the dark accepts. y or n, and after a y any flags above (y --flag ...)",
+]
 # flags given at the question that the script doesn't have: {flags}
-unknown_flags = ["No such incantation here: {flags}"]
+unknown_flags = [
+    "No such incantation here: {flags}",
+    "Those words have no power in this ritual: {flags}",
+]
 # the answer was no
 declined = [
     "You turn back at the gates. Nothing was done.",
     "The pact goes unsigned. Nothing was done.",
+    "The pit closes its mouth, unfed. Nothing was done.",
+    "Your computer is spared, for now. Nothing was done.",
 ]
 # {what} is found running, so {doing}
 detected = [
     "{what} stirs in the dark. It is awake, so: {doing}.",
     "Something moves below: {what} is running, so {doing}.",
+    "{what} is awake and bleeding light. Now: {doing}.",
+    "The old wound is open: {what} runs, and so begins {doing}.",
 ]
 # {what} isn't running, so {instead}
 undetected = [
     "{what} sleeps; not a sign of it in the dark. {instead}",
     "No trace of {what} down here. {instead}",
+    "{what} is cold and still. Nothing can be torn from it. {instead}",
+    "The dark is empty where {what} should be. {instead}",
 ]
+
 # The colour of each event's line, as terminal SGR codes (31 red, 33 yellow, 35 magenta, 1 bold,
 # 2 dim; joined with ;): embers and blood. `other` is what other programs print, `section` the
 # --- Section --- separators, `warning` the warning before the question.
@@ -195,8 +292,14 @@ frames = [
     "♡ {bar} the fans scream",
     "♥ {bar} the processor sweats blood",
     "♡ {bar} it cannot stop now",
+    "♥ {bar} the cores are on fire",
+    "♡ {bar} the RAM is begging",
+    "♥ {bar} the disk grinds its teeth",
+    "♡ {bar} it is so hot in here",
+    "♥ {bar} faster, faster",
+    "♡ {bar} it can't breathe",
 ]
-colors = ["1;31", "31", "2;31", "31"]
+colors = ["1;31", "31", "2;31", "31", "1;31", "1;33", "31", "2;31", "1;31", "31"]
 
 # What each part of the work is called in its --- Section --- separator
 [sections]
@@ -219,7 +322,7 @@ phrases = [""]
 # cargo's Building bar, redrawn in place
 [[rewrite]]
 pattern = '^\s*Building (\[[^\]]*\]) (\d+)/(\d+):? ?(.*)$'
-phrases = ["The forge roars {1} {2}/{3} {4}"]
+phrases = ["The forge roars {1} {2}/{3} {4}", "The bellows heave {1} {2}/{3} {4}", "Sparks fly {1} {2}/{3} {4}"]
 color = "33"
 
 # Doomify WaW and its Blender
@@ -235,7 +338,11 @@ color = "35"
 
 [[rewrite]]
 pattern = '^doomify: pulling (\S+)'
-phrases = ["Tearing {1} out of World at War's memory"]
+phrases = [
+    "Tearing {1} out of World at War's memory",
+    "Reaching into World at War's skull for {1}",
+    "{1} is ripped, still twitching, out of the running game",
+]
 
 [[rewrite]]
 pattern = '^doomify: rendering (\S+) pickup'
@@ -243,7 +350,12 @@ phrases = ["Painting {1} as it lies on the ground"]
 
 [[rewrite]]
 pattern = '^doomify: rendering (\S+) (\S+) (\d+) frames'
-phrases = ["Burning {1}'s {2} onto the canvas, {3} frames", "{1}'s {2}: {3} frames seared into being"]
+phrases = [
+    "Burning {1}'s {2} onto the canvas, {3} frames",
+    "{1}'s {2}: {3} frames seared into being",
+    "{1} is made to {2} again and again, {3} times, until it is captured",
+    "The camera stares into {1}'s {2} for {3} frames and does not blink",
+]
 
 [[rewrite]]
 pattern = '^glTF import finished in (\S+)'
@@ -269,7 +381,12 @@ color = "35"
 
 [[rewrite]]
 pattern = '^Cut (\S+) into (\d+) sprites \((\d+)/(\d+)\)'
-phrases = ["{1} is carved into {2} sprites ({3}/{4})", "The knife leaves {1} in {2} pieces ({3}/{4})"]
+phrases = [
+    "{1} is carved into {2} sprites ({3}/{4})",
+    "The knife leaves {1} in {2} pieces ({3}/{4})",
+    "{1} is butchered into {2} cuts ({3}/{4})",
+    "{2} slivers of {1} are pinned to the wall ({3}/{4})",
+]
 color = "31"
 
 [[rewrite]]
@@ -299,17 +416,31 @@ phrases = [
     "Hammering {1} {2} into shape on the anvil",
     "{1} {2} is thrown into the fire",
     "Smelting {1} {2} down from raw ore",
+    "{1} {2} is beaten red-hot until it takes shape",
+    "Quenching {1} {2} in blood",
+    "{1} {2} is ground between the millstones of the compiler",
+    "The borrow checker flays {1} {2} and finds it worthy",
+    "{1} {2} screams as it is linked",
+    "Pouring {1} {2} into the mould while it still glows",
 ]
 color = "2;33"
 
 [[rewrite]]
 pattern = '^\s*Finished `?(\S+?)`? profile.* in (\S+)'
-phrases = ["The forge cools: the {1} build is done, {2} in the flames"]
+phrases = [
+    "The forge cools: the {1} build is done, {2} in the flames",
+    "The hammering stops. {1}, wrought in {2} of fire",
+    "{2} at the anvil, and the {1} build stands finished, still steaming",
+]
 color = "33"
 
 [[rewrite]]
 pattern = '^\s*(?:Downloading|Downloaded) (\S+) v(\S+)'
-phrases = ["Prying {1} {2} loose from the crates below", "{1} {2} is dug up from the registry's grave"]
+phrases = [
+    "Prying {1} {2} loose from the crates below",
+    "{1} {2} is dug up from the registry's grave",
+    "Exhuming {1} {2} from crates.io's catacombs",
+]
 color = "2;33"
 
 [[rewrite]]
@@ -328,7 +459,12 @@ color = "1;31"
 
 [[rewrite]]
 pattern = '^Fra:(\d+)'
-phrases = ["Frame {1} is seared onto the canvas"]
+phrases = [
+    "Frame {1} is seared onto the canvas",
+    "Frame {1} burns itself into the film",
+    "Frame {1}: another moment of agony, rendered",
+    "Frame {1} is pulled out of the light, still hot",
+]
 
 [[rewrite]]
 pattern = "^Saved: '?(.*?)'?$"
