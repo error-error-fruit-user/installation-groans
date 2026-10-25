@@ -1,5 +1,5 @@
 """groans.py: speaking in an installation-groans voice, for the Python install scripts of the
-projects beside this one (publish.py, publish-install.py, appimage.py, doomify.py).
+projects beside this one (publish.py, publish-install.py, appimage.py).
 
     import groans
     groans.start(journal_path, computer_speak=False)
@@ -14,7 +14,7 @@ whatever another program prints (cargo, git, Blender...) is rewritten by the voi
 rules, or by its [fallback], so not a line comes through untouched. The journal keeps the plain
 account. Dependency-free Python 3.8+ (3.11+ reads the voice's TOML; older ones speak plainly).
 
-A script run by another (publish.py by publish-install.py, doomify.py by nacht-install) is told so
+A script run by another (publish.py by publish-install.py) is told so
 through the environment (GROANS_*): it speaks in the same voice and colours, writes into the same
 journal rather than one of its own, says nothing the outer one says itself (its beginning, its end,
 where the journal is, a section already open), and asks nothing, the outer one having asked.

@@ -1,5 +1,5 @@
 //! groans.rs: speaking in an installation-groans voice, for the Rust installers of the projects
-//! beside this one (tdl-install, nacht-install), which build it in as their `journal` module
+//! beside this one (install-tdl, install-nacht), which build it in as their `journal` module
 //! (their `build.rs` copies it from their installation-groans submodule, with the voices).
 //!
 //! The journal is everything the installer does, with the time since it began. `say!` says a line
@@ -9,7 +9,7 @@
 //! voice ([`rewrite`]: its `[[rewrite]]` rules, else its `[fallback]`), so no line comes through
 //! untouched. [`warning`] and [`confirm`] are the one question an install asks.
 //!
-//! An installer run by another script (tdl-install by nacht-install, either by publish-install.py)
+//! An installer run by another script (install-tdl by install-nacht, either by publish-install.py)
 //! is told so through the environment (`GROANS_*`, see [`child`]): it speaks in the same voice and
 //! colours, writes into the same journal instead of its own, leaves its beginning, its end and
 //! where the journal is to the outer one, never opens a section already open, and asks nothing.

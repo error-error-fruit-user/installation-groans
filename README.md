@@ -17,10 +17,10 @@ Every voice also has:
 
 Two modules speak them, so every installer and script does it the same way:
 
-- [`groans.py`](groans.py), for the Python scripts (`publish.py`, `publish-install.py`, `appimage.py`, `doomify.py`): `start`, `say`, `section`, `warning`, `confirm`, `run` (another program, rewritten in the voice), `capture`, `built`, `shortcut` and `finish`.
-- [`groans.rs`](groans.rs), built into the Rust installers (`tdl-install`, `nacht-install`) as their journal: the same, as `tell`, `section`, `warning`, `confirm`, `run`, `shortcut`, `finish`, and `say!`/`warn!`/`note!`.
+- [`groans.py`](groans.py), for the Python scripts (`publish.py`, `publish-install.py`, `appimage.py`): `start`, `say`, `section`, `warning`, `confirm`, `run` (another program, rewritten in the voice), `capture`, `built`, `shortcut` and `finish`.
+- [`groans.rs`](groans.rs), built into the Rust installers (`install-tdl`, `install-nacht`) as their journal: the same, as `tell`, `section`, `warning`, `confirm`, `run`, `shortcut`, `finish`, and `say!`/`warn!`/`note!`.
 
-A script run by another (publish.py by publish-install.py, tdl-install by nacht-install) learns it from the environment (`GROANS_JOURNAL`, `GROANS_DEPTH`, `GROANS_VOICE`, `GROANS_COLOR`, `GROANS_SECTION`, `GROANS_CAPTURED`): it speaks in the same voice and colours, writes into the same log, says nothing the outer one already says (its beginning and end, where the log is, its warning, a section already open), and asks nothing.
+A script run by another (publish.py by publish-install.py, install-tdl by install-nacht) learns it from the environment (`GROANS_JOURNAL`, `GROANS_DEPTH`, `GROANS_VOICE`, `GROANS_COLOR`, `GROANS_SECTION`, `GROANS_CAPTURED`): it speaks in the same voice and colours, writes into the same log, says nothing the outer one already says (its beginning and end, where the log is, its warning, a section already open), and asks nothing.
 
 The projects that install things carry this repository as a git submodule, `installation-groans/`, and read it from there (else from a checkout beside them, else GitHub).
 
