@@ -6,8 +6,8 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::{
-    Attribute, Expr, Fields, ItemStruct, LitStr, Token, Type, parse_macro_input,
-    punctuated::Punctuated,
+    Attribute, Expr, Fields, ItemStruct, LitStr, Path, Token, Type, parse::Parser,
+    parse_macro_input, punctuated::Punctuated,
 };
 
 /// What a field of the installer's struct is.
@@ -17,8 +17,10 @@ enum Kind {
     Release(Expr, LitStr),
     /// `#[installation_groans::Artifact(INSTALLATION)]`: something it downloads into the artifacts.
     Artifact(Expr),
-    /// A plain `bool`: a choice the installer's own code acts on.
-    Choice,
+    /// A plain `bool` (on with `#[installation_groans::On]`): a choice for the installer's own code.
+    Choice { on: bool },
+    /// An `Option<PathBuf>`: a path the installer's own code is given (`--waw DIR`).
+    Path,
 }
 
 /// The line of doc comments on `attrs`, joined, for the help, the plan and the question.
@@ -40,12 +42,18 @@ fn doc(attrs: &[Attribute]) -> String {
         .join(" ")
 }
 
-/// Whether `attr` is ours, `Release`/`Artifact` (any case, with or without `installation_groans::`).
+/// Whether `attr` is ours, `name` (any case, with or without `installation_groans::`).
 fn ours(attr: &Attribute, name: &str) -> bool {
     attr.path()
         .segments
         .last()
         .is_some_and(|last| last.ident.to_string().eq_ignore_ascii_case(name))
+}
+
+fn error(spanned: impl quote::ToTokens, message: &str) -> TokenStream {
+    syn::Error::new_spanned(spanned, message)
+        .to_compile_error()
+        .into()
 }
 
 /// The installer's command line, out of a struct of its parts, each with a doc comment (its help,
@@ -55,86 +63,98 @@ fn ours(attr: &Attribute, name: &str) -> bool {
 ///   `bool`: a program put in place as `name`, the payload;
 /// - `#[installation_groans::Artifact(INSTALLATION)]` on a `bool` (or `()`): something downloaded
 ///   into the artifacts;
-/// - a plain `bool`: a choice for the installer's own code.
+/// - a plain `bool`: a choice for the installer's own code, off unless `--<field>`, or on unless
+///   `--no-<field>` with `#[installation_groans::On]`;
+/// - an `Option<PathBuf>`: a path for the installer's own code (`--<field> PATH`).
 ///
-/// Releases and artifacts are on unless `--no-<field>`, choices off unless `--<field>`. The struct
-/// gets the flags every install has (`installation_groans::Flags`: `--accept`, `--mode`, `--dir`,
-/// `--artifacts`, `--reinstall`, `--run`, the shortcuts, `--computer-speak`), read through it as
-/// `cli.run`, a `Cli::new()` that reads the command line, and `<Struct>Releases`, a field per
-/// release, which a location's `releases` is.
+/// Releases and artifacts are on unless `--no-<field>`. Its options, all optional:
+/// `#[installation_groans::cli(title = "Nacht des Schreckens", folder = "nacht-des-schreckens",
+/// plan = my_plan)]`: what the install says it installs (else the first release's name), its folder
+/// for `--user-wide` (else the first release's name, or the title), and a
+/// `fn(&Cli, &Places) -> Vec<String>` giving the plan's lines for its parts (else their docs).
+///
+/// The struct gets the flags every install has (`installation_groans::Flags`: `--accept`,
+/// `--locally`/`--user-wide`, `--dir`, `--artifacts`, `--from`, `--reinstall`, the shortcuts,
+/// `--computer-speak`), read through it (`cli.reinstall`), a `Cli::new()` that reads the command
+/// line, and `<Struct>Releases` and `<Struct>Artifacts`, a field per release and artifact, which a
+/// location's `releases` and `artifacts` are.
 #[proc_macro_attribute]
-pub fn cli(_args: TokenStream, item: TokenStream) -> TokenStream {
+pub fn cli(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut item = parse_macro_input!(item as ItemStruct);
+    let options = match Punctuated::<syn::MetaNameValue, Token![,]>::parse_terminated.parse(args) {
+        Ok(options) => options,
+        Err(problem) => return problem.to_compile_error().into(),
+    };
+    let (mut title, mut folder, mut plan) = (None::<String>, None::<String>, None::<Path>);
+    for option in options {
+        let name = option.path.get_ident().map(ToString::to_string).unwrap_or_default();
+        match (name.as_str(), &option.value) {
+            ("title" | "folder", Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(text), .. })) => {
+                if name == "title" {
+                    title = Some(text.value());
+                } else {
+                    folder = Some(text.value());
+                }
+            }
+            ("plan", Expr::Path(path)) => plan = Some(path.path.clone()),
+            _ => return error(&option, "cli's options are title = \"...\", folder = \"...\" and plan = function"),
+        }
+    }
     let Fields::Named(fields) = &mut item.fields else {
-        return syn::Error::new_spanned(&item, "an installer's command line is a struct with named fields")
-            .to_compile_error()
-            .into();
+        return error(&item, "an installer's command line is a struct with named fields");
     };
     let mut parts = Vec::new();
     for field in fields.named.iter_mut() {
-        let mut kind = Kind::Choice;
+        let mut kind = None;
+        let mut on = false;
         for attr in &field.attrs {
             if ours(attr, "release") {
                 let args = match attr.parse_args_with(Punctuated::<Expr, Token![,]>::parse_terminated) {
                     Ok(args) => args,
-                    Err(error) => return error.to_compile_error().into(),
+                    Err(problem) => return problem.to_compile_error().into(),
                 };
                 let mut args = args.into_iter();
-                let installation = args.next();
-                let name = match args.next() {
-                    Some(Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Str(name),
-                        ..
-                    })) => name,
-                    None => LitStr::new(
-                        &field.ident.as_ref().unwrap().to_string(),
-                        Span::call_site(),
-                    ),
-                    Some(other) => {
-                        return syn::Error::new_spanned(other, "a release's name is a string")
-                            .to_compile_error()
-                            .into();
-                    }
+                let Some(installation) = args.next() else {
+                    return error(attr, "Release(INSTALLATION, \"name\")");
                 };
-                match installation {
-                    Some(installation) => kind = Kind::Release(installation, name),
-                    None => {
-                        return syn::Error::new_spanned(attr, "Release(INSTALLATION, \"name\")")
-                            .to_compile_error()
-                            .into();
-                    }
-                }
+                let name = match args.next() {
+                    Some(Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(name), .. })) => name,
+                    None => LitStr::new(&field.ident.as_ref().unwrap().to_string(), Span::call_site()),
+                    Some(other) => return error(other, "a release's name is a string"),
+                };
+                kind = Some(Kind::Release(installation, name));
             } else if ours(attr, "artifact") {
                 match attr.parse_args::<Expr>() {
-                    Ok(installation) => kind = Kind::Artifact(installation),
-                    Err(error) => return error.to_compile_error().into(),
+                    Ok(installation) => kind = Some(Kind::Artifact(installation)),
+                    Err(problem) => return problem.to_compile_error().into(),
                 }
+            } else if ours(attr, "on") {
+                on = true;
             }
         }
         field
             .attrs
-            .retain(|attr| !ours(attr, "release") && !ours(attr, "artifact"));
-        let always = match &field.ty {
-            Type::Tuple(tuple) if tuple.elems.is_empty() => true,
-            Type::Path(path) if path.path.is_ident("bool") => false,
-            other => {
-                return syn::Error::new_spanned(other, "an installer's parts are bool, or () for one always installed")
-                    .to_compile_error()
-                    .into();
-            }
+            .retain(|attr| !ours(attr, "release") && !ours(attr, "artifact") && !ours(attr, "on"));
+        let (always, path) = match &field.ty {
+            Type::Tuple(tuple) if tuple.elems.is_empty() => (true, false),
+            Type::Path(ty) if ty.path.is_ident("bool") => (false, false),
+            Type::Path(ty) if ty.path.segments.last().is_some_and(|last| last.ident == "Option") => (false, true),
+            other => return error(other, "an installer's parts are bool, () for one always installed, or Option<PathBuf>"),
         };
-        if always && matches!(kind, Kind::Choice) {
-            return syn::Error::new_spanned(&field.ty, "a choice is a bool")
-                .to_compile_error()
-                .into();
-        }
+        let kind = match (kind, path) {
+            (None, true) => Kind::Path,
+            (None, false) if always => return error(&field.ty, "a choice is a bool"),
+            (None, false) => Kind::Choice { on },
+            (Some(_), true) => return error(&field.ty, "a release or an artifact is a bool, or ()"),
+            (Some(kind), false) => kind,
+        };
         if always {
-            // (a release always installed is only there to be described)
+            // (a part always installed is only there to be described)
             field.attrs.push(syn::parse_quote!(#[allow(dead_code)]));
         }
         parts.push((field.ident.clone().unwrap(), doc(&field.attrs), kind, always));
     }
-    // 🚩 the flags every install has, read through the struct (cli.run)
+    // 🚩 the flags every install has, read through the struct (cli.reinstall)
     fields.named.push(syn::parse_quote! {
         #[doc(hidden)]
         pub flags: ::installation_groans::Flags
@@ -143,34 +163,50 @@ pub fn cli(_args: TokenStream, item: TokenStream) -> TokenStream {
     let name = &item.ident;
     let vis = &item.vis;
     let releases = format_ident!("{name}Releases");
+    let artifacts = format_ident!("{name}Artifacts");
     let about = doc(&item.attrs);
-    let program = parts
-        .iter()
-        .find_map(|(_, _, kind, _)| match kind {
-            Kind::Release(_, name) => Some(name.value()),
-            _ => None,
-        })
-        .unwrap_or_default();
-    let mut defaults = Vec::new();
-    let mut described = Vec::new();
-    let mut setters = Vec::new();
-    let mut release_fields = Vec::new();
-    let mut release_values = Vec::new();
+    let first_release = parts.iter().find_map(|(_, _, kind, _)| match kind {
+        Kind::Release(_, name) => Some(name.value()),
+        _ => None,
+    });
+    let title = title.or(first_release.clone()).unwrap_or_else(|| "it".into());
+    let folder = folder
+        .or(first_release)
+        .unwrap_or_else(|| title.to_lowercase().replace(' ', "-"));
+    let plan = match plan {
+        Some(plan) => quote!(#plan(self, places)),
+        None => quote!(::installation_groans::plan_parts(self, places)),
+    };
+    let (mut defaults, mut described, mut setters, mut paths) = (vec![], vec![], vec![], vec![]);
+    let (mut release_fields, mut release_values) = (vec![], vec![]);
+    let (mut artifact_fields, mut artifact_values) = (vec![], vec![]);
     for (field, doc, kind, always) in &parts {
         let flag = field.to_string().replace('_', "-");
-        let on = if *always {
+        let on = if *always || matches!(kind, Kind::Path) {
             quote!(::core::option::Option::None)
         } else {
             quote!(::core::option::Option::Some(self.#field))
         };
-        defaults.push(match (kind, always) {
-            (_, true) => quote!(#field: ()),
-            (Kind::Choice, false) => quote!(#field: false),
-            (_, false) => quote!(#field: true),
+        let on_by_default = !matches!(kind, Kind::Choice { on: false } | Kind::Path);
+        defaults.push(match kind {
+            _ if *always => quote!(#field: ()),
+            Kind::Path => quote!(#field: ::core::option::Option::None),
+            _ => quote!(#field: #on_by_default),
         });
-        if !always {
-            setters.push(quote!(#flag => self.#field = on,));
-        }
+        let path = match kind {
+            Kind::Path => {
+                paths.push(quote! {
+                    #flag => self.#field = ::core::option::Option::Some(::core::convert::Into::into(path)),
+                });
+                quote!(self.#field.clone().map(::core::convert::Into::into))
+            }
+            _ => {
+                if !always {
+                    setters.push(quote!(#flag => self.#field = on,));
+                }
+                quote!(::core::option::Option::None)
+            }
+        };
         let kind = match kind {
             Kind::Release(installation, release) => {
                 release_fields.push(quote!(pub #field: ::installation_groans::Release));
@@ -180,14 +216,27 @@ pub fn cli(_args: TokenStream, item: TokenStream) -> TokenStream {
                 quote!(::installation_groans::Kind::Release(&#installation, #release))
             }
             Kind::Artifact(installation) => {
+                artifact_fields.push(quote!(pub #field: ::installation_groans::Artifact));
+                artifact_values.push(quote! {
+                    #field: ::installation_groans::Artifact::new(#flag, &#installation, places, #on)
+                });
                 quote!(::installation_groans::Kind::Artifact(&#installation))
             }
-            Kind::Choice => quote!(::installation_groans::Kind::Choice),
+            Kind::Choice { .. } => quote!(::installation_groans::Kind::Choice),
+            Kind::Path => quote!(::installation_groans::Kind::Path),
         };
         described.push(quote! {
-            ::installation_groans::Part { flag: #flag, doc: #doc, kind: #kind, on: #on }
+            ::installation_groans::Part {
+                flag: #flag,
+                doc: #doc,
+                kind: #kind,
+                on: #on,
+                on_by_default: #on_by_default,
+                path: #path,
+            }
         });
     }
+
     quote! {
         #item
 
@@ -196,9 +245,26 @@ pub fn cli(_args: TokenStream, item: TokenStream) -> TokenStream {
             #(#release_fields,)*
         }
 
+        /// The artifacts the install downloads, a field each, and their folder through `Deref`: a
+        /// location's `artifacts`.
+        #vis struct #artifacts {
+            #(#artifact_fields,)*
+            #[doc(hidden)]
+            pub __folder: ::std::path::PathBuf,
+        }
+
+        impl ::core::ops::Deref for #artifacts {
+            type Target = ::std::path::Path;
+            fn deref(&self) -> &::std::path::Path {
+                &self.__folder
+            }
+        }
+
         impl ::installation_groans::Installer for #name {
             type Releases = #releases;
-            const NAME: &'static str = #program;
+            type Artifacts = #artifacts;
+            const TITLE: &'static str = #title;
+            const FOLDER: &'static str = #folder;
             const ABOUT: &'static str = #about;
 
             fn blank() -> Self {
@@ -212,6 +278,7 @@ pub fn cli(_args: TokenStream, item: TokenStream) -> TokenStream {
                 ::std::vec![#(#described),*]
             }
 
+            #[allow(unreachable_code, unused_variables)]
             fn set(&mut self, flag: &str, on: bool) -> bool {
                 match flag {
                     #(#setters)*
@@ -220,8 +287,29 @@ pub fn cli(_args: TokenStream, item: TokenStream) -> TokenStream {
                 true
             }
 
+            #[allow(unreachable_code, unused_variables)]
+            fn set_path(&mut self, flag: &str, path: ::std::path::PathBuf) -> bool {
+                match flag {
+                    #(#paths)*
+                    _ => return false,
+                }
+                true
+            }
+
+            fn plan(&self, places: &::installation_groans::Places) -> ::std::vec::Vec<::std::string::String> {
+                #plan
+            }
+
+            #[allow(unused_variables)]
             fn releases(&self, places: &::installation_groans::Places) -> #releases {
                 #releases { #(#release_values,)* }
+            }
+
+            fn artifacts(&self, places: &::installation_groans::Places) -> #artifacts {
+                #artifacts {
+                    #(#artifact_values,)*
+                    __folder: places.artifacts.clone(),
+                }
             }
         }
 
@@ -249,7 +337,7 @@ pub fn cli(_args: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Names where the installer whose command line is the struct given (`#[location(Cli)]`) installs:
-/// `installation_groans::Location<Cli>`, its mode, folders and releases.
+/// `installation_groans::Location<Cli>`, its places, releases and artifacts.
 #[proc_macro_attribute]
 pub fn location(args: TokenStream, item: TokenStream) -> TokenStream {
     let cli = parse_macro_input!(args as Type);

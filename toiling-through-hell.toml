@@ -233,6 +233,13 @@ declined = [
     "The pit closes its mouth, unfed. Nothing was done.",
     "Your computer is spared, for now. Nothing was done.",
 ]
+# the run is over: one last look at what was done before anything else happens (Enter goes on)
+pause = [
+    "Read what the pit has written, then press Enter.",
+    "The descent is over, for good or ill. Press Enter when you have seen enough.",
+    "Look upon what was wrought. Press Enter to climb out.",
+    "The scrolls are written. Press Enter to close the gates.",
+]
 # {what} is found running, so {doing}
 detected = [
     "{what} stirs in the dark. It is awake, so: {doing}.",
@@ -276,6 +283,7 @@ confirm = "1;31"
 unclear = "33"
 unknown_flags = "33"
 declined = "2"
+pause = "1;31"
 other = "2;31"
 section = "1;33"
 warning = "1;31"

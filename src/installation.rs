@@ -99,27 +99,6 @@ impl Installation {
         }
     }
 
-    /// The plan's line for it, as an artifact (`doc` is its field's doc comment).
-    pub(crate) fn plan(&self, doc: &str, flag: &str, art: &Path) -> String {
-        let mut line = format!("  - {doc}");
-        let what = [self.called(flag), self.version]
-            .into_iter()
-            .filter(|word| !word.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
-        let folder = self.folder(art, flag);
-        let shown = folder.strip_prefix(art).unwrap_or(&folder).display();
-        match (self.download, self.git) {
-            (Some(_), _) if self.blake3.is_some() => line.push_str(&format!(
-                ": {what} is downloaded into {shown}/ in the artifacts, checked against its pinned size and hash"
-            )),
-            (Some(_), _) => line.push_str(&format!(": {what} is downloaded into {shown}/ in the artifacts")),
-            (None, Some(git)) => line.push_str(&format!(": {what} is cloned from {git} into {shown}/ in the artifacts")),
-            (None, None) => {}
-        }
-        line
-    }
-
     /// Puts it in its folder in `art` (`flag` is its field), unless it is there already (and not
     /// `reinstall`). Returns the file that matters, or `None` if nothing was done.
     pub(crate) fn install(
@@ -196,6 +175,84 @@ impl Installation {
             format!("couldn't make {}: {error}", folder.display())
         })?;
         Ok(Some(path))
+    }
+}
+
+/// Something an install downloads into its artifacts, as it is there: `location.artifacts.uzdoom`.
+pub struct Artifact {
+    /// What it is called (its installation's name, else its field's).
+    pub name: &'static str,
+    /// The file that matters in its folder (`Installation::file`).
+    pub path: PathBuf,
+    /// Its folder in the artifacts.
+    pub folder: PathBuf,
+    /// Whether the install downloads it.
+    pub on: bool,
+    flag: &'static str,
+    installation: &'static Installation,
+    artifacts: PathBuf,
+}
+
+impl Artifact {
+    /// `installation` (its field `flag`), as an artifact in `places` (`on`: `None` for always).
+    pub fn new(
+        flag: &'static str,
+        installation: &'static Installation,
+        places: &crate::Places,
+        on: Option<bool>,
+    ) -> Self {
+        Artifact {
+            name: installation.called(flag),
+            path: installation.path(&places.artifacts, flag),
+            folder: installation.folder(&places.artifacts, flag),
+            on: on != Some(false),
+            flag,
+            installation,
+            artifacts: places.artifacts.clone(),
+        }
+    }
+
+    /// Its file, relative to the artifacts (`uzdoom/uzdoom.AppImage`), with `/` between folders
+    /// on every system: for a TOML in the artifacts that names it.
+    pub fn relative(&self) -> String {
+        let relative = self.path.strip_prefix(&self.artifacts).unwrap_or(&self.path);
+        relative
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
+    /// Whether its file is there.
+    pub fn exists(&self) -> bool {
+        self.path.exists()
+    }
+
+    /// The plan's line for it (`doc` is its field's doc comment).
+    pub(crate) fn plan(&self, doc: &str) -> String {
+        let installation = self.installation;
+        let mut line = format!("  - {doc}");
+        let what = [self.name, installation.version]
+            .into_iter()
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let shown = self.folder.strip_prefix(&self.artifacts).unwrap_or(&self.folder).display();
+        match (installation.download, installation.git) {
+            (Some(_), _) if installation.blake3.is_some() => line.push_str(&format!(
+                ": {what} is downloaded into {shown}/ in the artifacts, checked against its pinned size and hash"
+            )),
+            (Some(_), _) => line.push_str(&format!(": {what} is downloaded into {shown}/ in the artifacts")),
+            (None, Some(git)) => line.push_str(&format!(": {what} is cloned from {git} into {shown}/ in the artifacts")),
+            (None, None) => {}
+        }
+        line
+    }
+
+    /// Puts it in place, unless it is there already (and not `reinstall`). Returns its file, or
+    /// `None` if nothing was done.
+    pub(crate) fn install(&self, scratch: &Scratch, reinstall: bool) -> Outcome<Option<PathBuf>> {
+        self.installation.install(self.flag, &self.artifacts, scratch, reinstall)
     }
 }
 

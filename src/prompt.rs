@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::{
-    Installer, Location, Mode, Places,
+    Installer, Location, Mode, Places, places::NO_MODE,
     command_line::{self, apply},
     journal, note,
     places::plan,
@@ -20,7 +20,7 @@ use crate::{
 
 /// Asks the one question: what saying yes does under a red warning, and "Are you sure? [y/n]" in
 /// the voice's words. On the screen, the install's parts are ticked or not and the mode switched
-/// before the y; without one, it is groans.rs' question, whose y can carry any of the installer's
+/// before the y; without one, it is the journal's question, whose y can carry any of the installer's
 /// flags. `--accept` (or being run by another script) is yes unasked. Returns where the install
 /// goes, or `None` for no (said, and the run ends in failure).
 pub fn prompt_user<C: Installer>(terminal: &mut crate::Screen, cli: &mut C) -> Option<Location<C>> {
@@ -28,59 +28,43 @@ pub fn prompt_user<C: Installer>(terminal: &mut crate::Screen, cli: &mut C) -> O
         Some(terminal) if !cli.accept => ask(terminal, cli),
         _ => None,
     };
-    let speak = |cli: &C| {
-        journal::speak_in(crate::TOILING_THROUGH_HELL, crate::COMPUTER_SPEAK, cli.computer_speak);
-    };
+    terminal.leave();
+    journal::speak_in(crate::TOILING_THROUGH_HELL, crate::COMPUTER_SPEAK, cli.computer_speak);
     match asked {
         // 🖥️ asked on the screen: written down, and said no to aloud
         Some(yes) => {
-            terminal.leave();
-            speak(cli);
-            let places = Places::of(cli).ok();
-            if let Some(places) = &places {
-                for line in plan(cli, places, false) {
-                    journal::write(&line);
-                }
+            for line in plan(cli, false) {
+                journal::write(&line);
             }
             journal::write(if yes {
                 "asked on the screen, the answer was yes"
             } else {
                 "asked on the screen, the answer was no"
             });
-            match places.filter(|_| yes) {
+            match Places::of(cli).ok().filter(|_| yes) {
                 Some(places) => Some(Location::new(cli, places)),
                 None => no(),
             }
         }
-        // ❓ groans.rs' question, or none at all
+        // ❓ the journal's question, or none at all
         None => {
-            terminal.leave();
-            speak(cli);
-            let places = match Places::of(cli) {
-                Ok(places) => places,
-                Err(problem) => {
+            journal::warning(&plan(cli, true));
+            let Some(added) = journal::confirm(cli.accept, &flag_strs(cli)) else {
+                return no();
+            };
+            if !added.is_empty() {
+                note!("with the flags given at the question: {}", added.join(" "));
+                if let Err(problem) = apply(cli, added) {
                     warn!("{problem}");
                     return no();
                 }
-            };
-            journal::warning(&plan(cli, &places, true));
-            let added = match journal::confirm(cli.accept, &flag_strs(cli)) {
-                Some(added) => added,
-                None => return no(),
-            };
-            if added.is_empty() {
-                return Some(Location::new(cli, places));
             }
-            note!("with the flags given at the question: {}", added.join(" "));
-            if let Err(problem) = apply(cli, added) {
-                warn!("{problem}");
-                return no();
-            }
+            // 📍 never a guess at where: --locally or --user-wide, from the command line or the answer
             match Places::of(cli) {
                 Ok(places) => Some(Location::new(cli, places)),
                 Err(problem) => {
-                    warn!("{problem}");
-                    no()
+                    crate::fail(&problem);
+                    None
                 }
             }
         }
@@ -88,7 +72,7 @@ pub fn prompt_user<C: Installer>(terminal: &mut crate::Screen, cli: &mut C) -> O
 }
 
 fn flag_strs<C: Installer>(cli: &C) -> Vec<&'static str> {
-    // (leaked once, for groans.rs' &[&str]: the question is asked once a run)
+    // (leaked once, for the journal's &[&str]: the question is asked once a run)
     command_line::flag_names(cli)
         .into_iter()
         .map(|flag| &*Box::leak(flag.into_boxed_str()))
@@ -185,10 +169,10 @@ fn ask<C: Installer>(terminal: &mut ratatui::DefaultTerminal, cli: &mut C) -> Op
             KeyCode::Char(' ' | 'x') | KeyCode::Enter | KeyCode::Left | KeyCode::Right => {
                 match items.get(selected) {
                     Some((Item::Mode, _)) => {
-                        cli.mode = match cli.mode {
-                            Mode::InPlace => Mode::User,
-                            Mode::User => Mode::InPlace,
-                        };
+                        cli.mode = Some(match cli.mode {
+                            Some(Mode::InPlace) => Mode::User,
+                            _ => Mode::InPlace,
+                        });
                         // (the folder given was for the other mode)
                         cli.dir = None;
                     }
@@ -211,18 +195,13 @@ fn ask<C: Installer>(terminal: &mut ratatui::DefaultTerminal, cli: &mut C) -> Op
 /// The question's list: the mode, the parts that can be left out, and the switches every install
 /// has, each with whether it is on.
 fn items<C: Installer>(cli: &mut C) -> Vec<(Item, bool)> {
-    let mut items = vec![(Item::Mode, cli.mode == Mode::User)];
+    let mut items = vec![(Item::Mode, cli.mode.is_some())];
     for part in cli.parts() {
         if let Some(on) = part.on {
             items.push((Item::Part(part.flag), on));
         }
     }
-    let mut switches = vec!["reinstall", "desktop-shortcut", "menu-entry"];
-    if !C::NAME.is_empty() {
-        switches.extend(["run"]);
-    }
-    switches.push("computer-speak");
-    for flag in switches {
+    for flag in ["reinstall", "desktop-shortcut", "menu-entry", "computer-speak"] {
         let on = cli.switch(flag).is_some_and(|on| *on);
         items.push((Item::Switch(flag), on));
     }
@@ -245,7 +224,7 @@ fn draw<C: Installer>(
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    let name = if C::NAME.is_empty() { "the install" } else { C::NAME };
+    let name = C::TITLE;
     frame.render_widget(
         Line::from(vec![
             Span::styled(name, Style::new().add_modifier(Modifier::BOLD)),
@@ -253,13 +232,7 @@ fn draw<C: Installer>(
         ]),
         title,
     );
-    let plan: Vec<Line> = match places {
-        Ok(places) => plan(cli, places, false).into_iter().map(Line::from).collect(),
-        Err(problem) => vec![Line::styled(
-            format!("It can't go there: {problem}"),
-            asking.warning_style,
-        )],
-    };
+    let plan: Vec<Line> = plan(cli, false).into_iter().map(Line::from).collect();
     frame.render_widget(
         Paragraph::new(plan).wrap(Wrap { trim: false }).block(
             Block::new()
@@ -280,8 +253,9 @@ fn draw<C: Installer>(
             let mark = if *on { "[x] " } else { "[ ] " };
             ListItem::new(match item {
                 Item::Mode => match cli.mode {
-                    Mode::InPlace => format!("<-> In place, in {dir}"),
-                    Mode::User => format!("<-> For you, in {dir}"),
+                    None => "<-> Where? Not said yet: in place (--locally) or for you (--user-wide)".into(),
+                    Some(Mode::InPlace) => format!("<-> In place (--locally), in {dir}"),
+                    Some(Mode::User) => format!("<-> For you only (--user-wide), in {dir}"),
                 },
                 Item::Part(flag) => {
                     let doc = parts
@@ -302,7 +276,12 @@ fn draw<C: Installer>(
         choices,
         list,
     );
-    frame.render_widget(Line::styled(asking.question.as_str(), asking.question_style), question);
+    let asked = match places {
+        Err(problem) if problem == NO_MODE => "Say where first: the first line, in place or for you",
+        Err(_) => "It can't go there: change where",
+        Ok(_) => asking.question.as_str(),
+    };
+    frame.render_widget(Line::styled(asked, asking.question_style), question);
     frame.render_widget(
         Line::styled(
             "↑↓ choose · space switches · y yes · n no",
@@ -318,7 +297,6 @@ fn switch_label(flag: &str, name: &str) -> String {
         "reinstall" => "Do everything again, rather than pick up where the last run left off".into(),
         "desktop-shortcut" => format!("Make a shortcut to {name} on the desktop"),
         "menu-entry" => format!("Make an entry for {name} in the app menu"),
-        "run" => format!("Run {name} once it is installed"),
         "computer-speak" => "Speak plainly (Computer Speak)".into(),
         other => other.into(),
     }

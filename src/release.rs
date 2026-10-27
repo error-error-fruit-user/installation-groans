@@ -11,7 +11,6 @@ use crate::{
     Installation, Mode, Outcome, Places,
     installation::{self, Scratch},
     journal, note,
-    screen::STATE,
 };
 
 /// A program the install puts in place as `name`, from the nearest place it is found: beside the
@@ -55,9 +54,14 @@ impl Release {
         on: Option<bool>,
     ) -> Self {
         let file = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
+        // 🧱 in place, one beside already (an AppImage among them) stays where and what it is
+        let path = match places.mode {
+            Mode::InPlace => found_in(&places.dir, name),
+            Mode::User => None,
+        };
         Release {
             name,
-            path: places.dir.join(file),
+            path: path.unwrap_or_else(|| places.dir.join(file)),
             on: on != Some(false),
             installation,
             places: places.clone(),
@@ -208,9 +212,18 @@ impl Release {
     /// Runs it by its command once the install is over, the terminal handed over to it, as the
     /// player would.
     pub fn run_alias(&self) {
-        if let Ok(mut state) = STATE.lock() {
-            state.then = Some(self.path.clone());
-        }
+        let (name, path) = (self.name, self.path.clone());
+        crate::then(move || {
+            journal::section("play");
+            journal::tell(
+                "run",
+                &[("command", name)],
+                &format!("Opening {name}: {}", path.display()),
+            );
+            if let Err(error) = Command::new(&path).status() {
+                crate::warn!("Couldn't run {}: {error}", path.display());
+            }
+        });
     }
 }
 

@@ -1,19 +1,19 @@
-//! groans.rs: speaking in an installation-groans voice, for the Rust installers of the projects
-//! beside this one (install-tdl, install-nacht), which build it in as their `journal` module
-//! (their `build.rs` copies it from their installation-groans submodule, with the voices).
+//! The journal: speaking in an installation-groans voice, for the installers built with this
+//! library (install-tdl, install-nacht). Kept in step with `groans.py`, which the Python scripts
+//! speak through.
 //!
 //! The journal is everything the installer does, with the time since it began. `say!` says a line
 //! and writes it down, `warn!` says a problem, `note!` only writes a detail down. [`tell`] says an
 //! event as one of the voice's phrases for it, in its colour; [`section`] opens a part of the work
 //! with a yellow `--- Section ---`; [`run`] runs another program, rewriting what it prints in the
 //! voice ([`rewrite`]: its `[[rewrite]]` rules, else its `[fallback]`), so no line comes through
-//! untouched. [`warning`] and [`confirm`] are the one question an install asks.
+//! untouched. [`warning`] and [`confirm`] are the one question an install asks when there is no
+//! screen to ask it on.
 //!
 //! An installer run by another script (install-tdl by install-nacht, either by publish-install.py)
 //! is told so through the environment (`GROANS_*`, see [`child`]): it speaks in the same voice and
 //! colours, writes into the same journal instead of its own, leaves its beginning, its end and
 //! where the journal is to the outer one, never opens a section already open, and asks nothing.
-//! Needs the `toml` and `regex-lite` crates.
 
 use std::{
     fs::{self, File},
@@ -147,11 +147,14 @@ pub fn open(dir: &Path, name: &str) -> Option<PathBuf> {
         .map(|time| time.as_secs())
         .unwrap_or_default();
     let mut journal = journal().lock().ok()?;
+    // (the installer's own name, not this library's)
+    let program = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "installer".into());
     let _ = writeln!(
         file,
-        "=== {} {}, started at {since} (seconds since 1970) ===",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION")
+        "=== {program}, started at {since} (seconds since 1970) ==="
     );
     for line in journal.waiting.drain(..) {
         let _ = writeln!(file, "{line}");

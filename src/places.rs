@@ -3,19 +3,23 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
-    Installer, Kind, Mode, Outcome, Release, Screen,
+    Artifact, Installer, Kind, Mode, Outcome, Release, Screen,
     installation::Scratch,
     journal, note,
     screen::{self, STATE},
     warn,
 };
 
+/// What [`Places::of`] says until the install is told where.
+pub(crate) const NO_MODE: &str = "Nothing was done: say where to install it, with --locally or --user-wide";
+
 /// Where an install goes, as its flags say.
 #[derive(Clone, Debug)]
 pub struct Places {
     /// In place, or for you.
     pub mode: Mode,
-    /// The folder this program is in (an AppImage's own, not its mount).
+    /// The folder the release it installs is in: this program's (an AppImage's own, not its
+    /// mount), or `--from`.
     pub here: PathBuf,
     /// The folder the payload goes in.
     pub dir: PathBuf,
@@ -26,14 +30,15 @@ pub struct Places {
 }
 
 impl Places {
-    /// Where `cli` says the install goes.
+    /// Where `cli` says the install goes; [`NO_MODE`] until it says where.
     pub fn of<C: Installer>(cli: &C) -> Outcome<Places> {
-        let here = program_dir().ok_or("couldn't tell where this program is")?;
+        let here = here(cli)?;
+        let mode = cli.mode.ok_or(NO_MODE)?;
         let dir = match &cli.dir {
             Some(dir) => std::path::absolute(dir).unwrap_or_else(|_| dir.clone()),
-            None => install_dir::<C>(cli.mode, &here)?,
+            None => install_dir::<C>(mode, &here)?,
         };
-        if cli.mode == Mode::InPlace && !dir.is_dir() {
+        if mode == Mode::InPlace && !dir.is_dir() {
             return Err(format!("{} isn't a folder", dir.display()));
         }
         let artifacts = match &cli.artifacts {
@@ -41,7 +46,7 @@ impl Places {
             None => artifacts_dir(&dir, &here),
         };
         Ok(Places {
-            mode: cli.mode,
+            mode,
             here,
             dir,
             artifacts,
@@ -49,7 +54,7 @@ impl Places {
         })
     }
 
-    /// Where the command goes for `--mode user`, as it is shown.
+    /// Where the command goes for `--user-wide`.
     pub fn bin(&self) -> PathBuf {
         match std::env::var_os("HOME") {
             Some(home) if !cfg!(windows) => Path::new(&home).join(".local").join("bin"),
@@ -58,11 +63,14 @@ impl Places {
     }
 }
 
-/// Where the installer whose command line is `C` installs: its places, and its releases there
-/// (`location.releases.tdl`). Named by [`macro@crate::location`].
+/// Where the installer whose command line is `C` installs: its places (through `Deref`:
+/// `location.dir`, `location.mode`), its releases there (`location.releases.tdl`) and its artifacts
+/// (`location.artifacts.uzdoom`, and the artifacts' folder itself through `Deref`). Named by
+/// [`macro@crate::location`].
 pub struct Location<C: Installer> {
     pub places: Places,
     pub releases: C::Releases,
+    pub artifacts: C::Artifacts,
 }
 
 impl<C: Installer> std::ops::Deref for Location<C> {
@@ -76,16 +84,17 @@ impl<C: Installer> Location<C> {
     pub(crate) fn new(cli: &C, places: Places) -> Self {
         Location {
             releases: cli.releases(&places),
+            artifacts: cli.artifacts(&places),
             places,
         }
     }
 
     /// `name` in the artifacts (`location.artifact("setup.toml")`).
     pub fn artifact(&self, name: impl AsRef<Path>) -> PathBuf {
-        self.artifacts.join(name)
+        self.places.artifacts.join(name)
     }
 
-    /// Everything `cli` asks for: its releases put in place (and on your PATH for `--mode user`),
+    /// Everything `cli` asks for: its releases put in place (and on your PATH for `--user-wide`),
     /// its artifacts downloaded, its shortcuts made, said in the voice and written in
     /// `install.log` in the artifacts. The screen gives way to the journal, whose lines stay in the
     /// terminal after. Returns whether all of it went well.
@@ -96,13 +105,19 @@ impl<C: Installer> Location<C> {
             crate::COMPUTER_SPEAK,
             cli.computer_speak,
         );
-        journal::open(&self.artifacts, "install.log");
-        note!("this program is in {}", self.here.display());
+        let places = &self.places;
+        let made = [&places.dir, &places.artifacts]
+            .into_iter()
+            .try_for_each(|folder| {
+                std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))
+            });
+        journal::open(&places.artifacts, "install.log");
+        note!("installing the release in {}", places.here.display());
         note!(
             "mode {:?}, installing in {}, artifacts in {}",
-            self.mode,
-            self.dir.display(),
-            self.artifacts.display()
+            places.mode,
+            places.dir.display(),
+            places.artifacts.display()
         );
         let parts = cli.parts();
         note!(
@@ -113,28 +128,28 @@ impl<C: Installer> Location<C> {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        let what = if C::NAME.is_empty() { C::ABOUT } else { C::NAME };
-        screen::began(what);
+        screen::began(C::TITLE);
         journal::tell(
             "begin",
-            &[("what", what), ("place", &self.dir.display().to_string())],
-            &format!("Installing {what} in {}", self.dir.display()),
+            &[("what", C::TITLE), ("place", &places.dir.display().to_string())],
+            &format!("Installing {} in {}", C::TITLE, places.dir.display()),
         );
+        if let Err(problem) = made {
+            screen::fail(&problem);
+            return false;
+        }
         let mut ok = true;
         let releases: Vec<_> = parts
             .iter()
             .filter(|part| part.wanted())
             .filter_map(|part| match part.kind {
                 Kind::Release(installation, name) => {
-                    Some(Release::new(name, installation, &self.places, part.on))
+                    Some(Release::new(name, installation, places, part.on))
                 }
                 _ => None,
             })
             .collect();
         let scratch = Scratch::new();
-        if !releases.is_empty() {
-            journal::section("install");
-        }
         for release in &releases {
             if let Err(problem) = release.install(&scratch) {
                 warn!("{} wasn't installed: {problem}", release.name);
@@ -145,28 +160,29 @@ impl<C: Installer> Location<C> {
             .iter()
             .filter(|part| part.wanted())
             .filter_map(|part| match part.kind {
-                Kind::Artifact(installation) => Some((part.flag, installation)),
+                Kind::Artifact(installation) => {
+                    Some(Artifact::new(part.flag, installation, places, part.on))
+                }
                 _ => None,
             })
             .collect();
         if !artifacts.is_empty() {
             journal::section("download");
         }
-        for (flag, installation) in artifacts {
-            let name = installation.called(flag);
-            match installation.install(flag, &self.artifacts, &scratch, self.reinstall) {
-                Ok(Some(path)) => note!("{name}: {}", path.display()),
+        for artifact in artifacts {
+            match artifact.install(&scratch, places.reinstall) {
+                Ok(Some(path)) => note!("{}: {}", artifact.name, path.display()),
                 Ok(None) => {}
                 Err(problem) => {
-                    warn!("{name} wasn't installed: {problem}");
+                    warn!("{} wasn't installed: {problem}", artifact.name);
                     ok = false;
                 }
             }
         }
         if let Some(release) = releases.first() {
             journal::shortcut(
-                release.name,
-                release.name,
+                C::TITLE,
+                C::FOLDER,
                 &[release.path.display().to_string()],
                 C::ABOUT,
                 cli.desktop_shortcut,
@@ -180,44 +196,67 @@ impl<C: Installer> Location<C> {
     }
 }
 
-/// The plan: what saying yes does, step by step, under the warning; with the flags that change it
-/// at the end when the question is groans.rs' (`flags`).
-pub(crate) fn plan<C: Installer>(cli: &C, places: &Places, flags: bool) -> Vec<String> {
-    let name = if C::NAME.is_empty() { "it" } else { C::NAME };
-    let mut lines = vec!["Saying yes:".to_string()];
+/// The plan: what saying yes does, step by step, under the warning (until it is told where, that
+/// it must be); with the flags that change it at the end when the question is the journal's
+/// (`flags`).
+pub(crate) fn plan<C: Installer>(cli: &C, flags: bool) -> Vec<String> {
+    let title = C::TITLE;
+    let places = match Places::of(cli) {
+        Ok(places) => places,
+        Err(problem) if problem == NO_MODE => {
+            let local = here(cli)
+                .map(|here| here.display().to_string())
+                .unwrap_or_else(|problem| problem);
+            let user = here(cli)
+                .and_then(|here| install_dir::<C>(Mode::User, &here))
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_else(|problem| problem);
+            return vec![
+                format!("Say where to install {title}, {}:", if flags { "here after the y or on the command line" } else { "here or on the command line" }),
+                format!("  --locally    in place, in {local}"),
+                format!("  --user-wide  for you only, in {user}"),
+                "One of them is needed: without it, nothing is done.".into(),
+            ];
+        }
+        Err(problem) => return vec![format!("It can't go there: {problem}")],
+    };
+    let mut lines = vec!["Saying yes will:".to_string()];
     lines.push(match places.mode {
-        Mode::InPlace => format!("  - installs in place, in {}, and adds no command", places.dir.display()),
+        Mode::InPlace => format!("  - install {title} in place, in {}, adding no command", places.dir.display()),
         Mode::User => format!(
-            "  - installs into {}, with the {name} command on your PATH ({})",
+            "  - install {title} for you only, in {}{}",
             places.dir.display(),
-            places.bin().display()
+            if cli.parts().iter().any(|part| matches!(part.kind, Kind::Release(..))) {
+                format!(", its command on your PATH ({})", places.bin().display())
+            } else {
+                String::new()
+            }
         ),
     });
     lines.push(format!(
-        "  - puts everything else it makes, its artifacts, in {}: its log among them",
+        "  - put everything else it makes, its artifacts, in {}: its log among them",
         places.artifacts.display()
     ));
-    for part in cli.parts().iter().filter(|part| part.wanted()) {
-        lines.push(match part.kind {
-            Kind::Artifact(installation) => installation.plan(part.doc, part.flag, &places.artifacts),
-            _ => format!("  - {}", part.doc),
-        });
-    }
+    lines.extend(cli.plan(&places));
     if cli.desktop_shortcut {
-        lines.push(format!("  - makes a shortcut to {name} on your desktop, with the system's lock icon"));
+        lines.push(format!("  - make a shortcut to {title} on your desktop, with the system's lock icon"));
     }
     if cli.menu_entry {
-        lines.push(format!("  - makes an entry for {name} in your app menu, with the system's lock icon"));
+        lines.push(format!("  - make an entry for {title} in your app menu, with the system's lock icon"));
     }
-    if cli.run {
-        lines.push(format!("  - runs {name} once it is done"));
-    }
-    lines.push("  - leaves alone what is there already".into());
+    lines.push("  - leave alone what is there already".into());
     let steps = journal::Steps::open(&places.artifacts, cli.reinstall);
-    let earlier = steps.earlier();
+    // (a step marked with what it was done with, `tdl <mark>`, by its name alone, each once)
+    let mut earlier: Vec<&str> = Vec::new();
+    for step in steps.earlier() {
+        let name = step.split([' ', ':']).next().unwrap_or(step);
+        if !earlier.contains(&name) {
+            earlier.push(name);
+        }
+    }
     if !earlier.is_empty() {
         lines.push(format!(
-            "  - skips what an earlier run finished ({}), picking up where it left off (--reinstall does it all again)",
+            "  - skip what an earlier run finished ({}), picking up where it left off (--reinstall does it all again)",
             earlier.join(", ")
         ));
     }
@@ -225,10 +264,21 @@ pub(crate) fn plan<C: Installer>(cli: &C, places: &Places, flags: bool) -> Vec<S
         lines.push(String::new());
         lines.push(format!(
             "To change that, here or after the y: {} (--help says what each does).",
-            crate::command_line::flag_names(cli).join(" ")
+            crate::command_line::changing(cli)
         ));
     }
     lines
+}
+
+/// The folder the release it installs is in: `--from`, or this program's.
+fn here<C: Installer>(cli: &C) -> Outcome<PathBuf> {
+    match &cli.from {
+        Some(from) => Ok(from
+            .canonicalize()
+            .or_else(|_| std::path::absolute(from))
+            .unwrap_or_else(|_| from.clone())),
+        None => program_dir().ok_or_else(|| "couldn't tell where this program is".into()),
+    }
 }
 
 /// The folder this program is in. An AppImage runs from a mount that goes away with it, so for
@@ -241,7 +291,7 @@ pub(crate) fn program_dir() -> Option<PathBuf> {
     exe.parent().map(Path::to_path_buf)
 }
 
-/// The folder the payload is installed to in `mode`; `here` is where this program is.
+/// The folder the payload is installed to in `mode`; `here` is where the release is.
 fn install_dir<C: Installer>(mode: Mode, here: &Path) -> Outcome<PathBuf> {
     let var = |name: &str| {
         std::env::var_os(name)
@@ -249,15 +299,14 @@ fn install_dir<C: Installer>(mode: Mode, here: &Path) -> Outcome<PathBuf> {
             .filter(|path| !path.as_os_str().is_empty())
             .ok_or_else(|| format!("${name} isn't set; pass --dir"))
     };
-    let name = if C::NAME.is_empty() { env!("CARGO_PKG_NAME") } else { C::NAME };
     Ok(match (mode, cfg!(windows)) {
         (Mode::InPlace, _) => here.to_path_buf(),
-        (Mode::User, true) => var("LOCALAPPDATA")?.join("Programs").join(name),
-        (Mode::User, false) => var("HOME")?.join(".local").join("opt").join(name),
+        (Mode::User, true) => var("LOCALAPPDATA")?.join("Programs").join(C::FOLDER),
+        (Mode::User, false) => var("HOME")?.join(".local").join("opt").join(C::FOLDER),
     })
 }
 
-/// Where everything but the payload goes: when this runs in place from a project's
+/// Where everything but the payload goes: when this installs in place from a project's
 /// `published/releases/`, that project's `published/artifacts/`, or else `<dir>/artifacts/`.
 fn artifacts_dir(dir: &Path, here: &Path) -> PathBuf {
     match here.parent() {

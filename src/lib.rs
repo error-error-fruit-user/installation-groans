@@ -4,7 +4,7 @@
 //! opens the screen, [`prompt_user`] asks the one question (its plan under a red warning, its parts
 //! to tick, "Are you sure? [y/n]" in the voice's words) and gives the [`Location`] it installs in,
 //! whose [`Location::install`] puts its [`Release`]s in place and downloads its artifacts, saying
-//! all of it through the [`journal`] (groans.rs, the voices built in):
+//! all of it through the [`journal`] (the voices built in):
 //!
 //! ```ignore
 //! use installation_groans::Installation;
@@ -36,14 +36,13 @@
 //! ```
 //!
 //! Run by another script (`GROANS_*`), or with no terminal, there is no screen: the question is
-//! groans.rs' own (asked of no one when nested), and everything is said line by line.
+//! the journal's own (asked of no one when nested), and everything is said line by line.
 
 pub use installation_groans_macros::{cli, location};
 pub use ratatui;
 pub use toml;
 
-/// groans.rs, the journal every installer speaks through, with `say!`, `warn!` and `note!`.
-#[path = "../groans.rs"]
+/// The journal every installer speaks through, with `say!`, `warn!` and `note!`.
 pub mod journal;
 
 mod command_line;
@@ -53,12 +52,12 @@ mod prompt;
 mod release;
 mod screen;
 
-pub use command_line::{Flags, Installer, Kind, Mode, Part, parse};
-pub use installation::Installation;
+pub use command_line::{Flags, Installer, Kind, Mode, Part, parse, plan_parts};
+pub use installation::{Artifact, Installation};
 pub use places::{Location, Places};
 pub use prompt::prompt_user;
 pub use release::Release;
-pub use screen::{Screen, run};
+pub use screen::{Screen, fail, run, then};
 
 /// Toiling Through Hell, the voice the install speaks in unless told `--computer-speak`.
 pub const TOILING_THROUGH_HELL: &str = include_str!("../toiling-through-hell.toml");

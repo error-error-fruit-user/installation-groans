@@ -32,6 +32,7 @@ confirm = ["Are you sure? [y/n]"]
 unclear = ["y or n; after a y, any of the flags above (y --flag ...)"]
 unknown_flags = ["Not one of this script's flags: {flags}"]
 declined = ["Nothing was done."]
+pause = ["Press Enter to continue."]
 detected = ["Detected {what}: {doing}."]
 undetected = ["{what} was not detected. {instead}"]
 # The colour of each event's line, as terminal SGR codes (36 cyan, 32 green, 34 blue, 31 red,
@@ -62,6 +63,7 @@ confirm = "1;36"
 unclear = "33"
 unknown_flags = "33"
 declined = "2"
+pause = "1"
 other = "2"
 section = "1;33"
 warning = "1;31"
