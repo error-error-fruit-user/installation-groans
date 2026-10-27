@@ -76,7 +76,7 @@ fn main() {
 
 A script run by another (publish.py by publish-install.py, install-tdl by install-nacht) learns it from the environment (`GROANS_JOURNAL`, `GROANS_DEPTH`, `GROANS_VOICE`, `GROANS_COLOR`, `GROANS_SECTION`, `GROANS_CAPTURED`): it speaks in the same voice and colours, writes into the same log, says nothing the outer one already says (its beginning and end, where the log is, its warning, a section already open), and asks nothing.
 
-The projects that install things carry this repository as a git submodule, `installation-groans/`: their installers depend on the crate there (`installation-groans = { path = "../installation-groans" }`), and their Python scripts load `groans.py` from it (else from a checkout beside them, else GitHub).
+The projects that install things depend on it: their installers on the crate (`installation-groans = { git = "https://github.com/error-error-fruit-user/installation-groans.git" }`; in the workspace, its `.cargo/config.toml` patches that to the checkout beside them), and their Python scripts load `groans.py` from the checkout beside them, else GitHub.
 
 ## License
 
