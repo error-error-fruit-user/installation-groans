@@ -101,10 +101,12 @@ pub fn run(main: impl FnOnce(&mut Screen)) -> ! {
     if let Some(what) = state.began {
         journal::finish(what);
     }
-    pause();
-    if let Some(then) = state.then
-        && !state.failed
-    {
+    let then = state.then.filter(|_| !state.failed);
+    // (run by another script, it waits only before opening something: the outer one's end waits)
+    if !nested() || then.is_some() {
+        pause();
+    }
+    if let Some(then) = then {
         then();
     }
     std::process::exit(if state.failed || state.declined { 1 } else { 0 })
@@ -112,9 +114,9 @@ pub fn run(main: impl FnOnce(&mut Screen)) -> ! {
 
 /// The end of every run, before anything else happens (opening what was installed, or the window
 /// closing): a line to press Enter on, so what was done, or what went wrong, can be read. Not when
-/// another script runs this one (its own end waits) or there is no one at the terminal.
+/// there is no one at the terminal.
 pub(crate) fn pause() {
-    if nested() || !std::io::stdin().is_terminal() {
+    if !std::io::stdin().is_terminal() {
         return;
     }
     let said = journal::phrase("pause", &[]).unwrap_or_else(|| "Press Enter to continue.".into());

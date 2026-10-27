@@ -233,9 +233,23 @@ def confirm(accept=False, flags=()):
         return words[1:]
 
 
+def pause():
+    """The end of a run, before anything else happens: a line to press Enter on, so what was done,
+    or what went wrong, can be read (as the library's installers end). Only for the outermost
+    script, with someone at the terminal."""
+    if nested() or not sys.stdin.isatty():
+        return
+    said = phrase("pause", {}) or "Press Enter to continue."
+    try:
+        input(paint(said, "pause") + " ")
+    except EOFError:
+        pass
+
+
 def declined():
     """The answer was no: says that nothing was done, and stops."""
     show(phrase("declined", {}) or "Nothing was done.", "declined")
+    pause()
     sys.exit(1)
 
 
@@ -426,6 +440,7 @@ def finish(what, ok=True, error=None):
         say("problem", f"{what} failed: {error}", problem=error)
     if journal:
         say("journal", f"What it did is in {journal}", place=journal)
+    pause()
 
 
 def other(line, stream=None):

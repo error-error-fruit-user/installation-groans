@@ -176,7 +176,9 @@ pub fn parse<C: Installer>() -> C {
     let mut cli = C::blank();
     if let Err(problem) = apply(&mut cli, std::env::args().skip(1)) {
         eprintln!("{problem}\n\nSee --help for what it takes.");
-        crate::screen::pause();
+        if !crate::screen::nested() {
+            crate::screen::pause();
+        }
         std::process::exit(2);
     }
     cli
@@ -259,7 +261,7 @@ pub(crate) fn changing<C: Installer>(cli: &C) -> String {
     let mut flags = vec!["--locally or --user-wide".to_string(), "--dir".into(), "--artifacts".into()];
     for part in cli.parts() {
         match (part.kind, part.on, part.on_by_default) {
-            (Kind::Path, ..) => flags.push(format!("--{} {}", part.flag, part.flag.to_uppercase())),
+            (Kind::Path, ..) => flags.push(format!("--{} PATH", part.flag)),
             (_, None, _) => {}
             (_, Some(_), true) => flags.push(format!("--no-{}", part.flag)),
             (_, Some(_), false) => flags.push(format!("--{}", part.flag)),
@@ -280,7 +282,7 @@ fn help<C: Installer>(cli: &C) -> String {
     let line = |flag: String, doc: &str| format!("  {flag:<26} {doc}");
     for part in cli.parts() {
         lines.push(match (part.kind, part.on, part.on_by_default) {
-            (Kind::Path, ..) => line(format!("--{} {}", part.flag, part.flag.to_uppercase()), part.doc),
+            (Kind::Path, ..) => line(format!("--{} PATH", part.flag), part.doc),
             (_, None, _) => line("(always)".into(), part.doc),
             (_, Some(_), true) => line(format!("--no-{}", part.flag), &format!("{} (unless given)", part.doc)),
             (_, Some(_), false) => line(format!("--{}", part.flag), part.doc),
