@@ -67,6 +67,9 @@ fn error(spanned: impl quote::ToTokens, message: &str) -> TokenStream {
 ///   `--no-<field>` with `#[installation_groans::On]`;
 /// - an `Option<PathBuf>`: a path for the installer's own code (`--<field> PATH`).
 ///
+/// A field's flag is its name with `-` for `_`, or `#[installation_groans::Flag("name")]`'s (a
+/// path and an `On` choice can share one: `--blender PATH` and `--no-blender`).
+///
 /// Releases and artifacts are on unless `--no-<field>`. Its options, all optional:
 /// `#[installation_groans::cli(title = "Nacht des Schreckens", folder = "nacht-des-schreckens",
 /// plan = my_plan)]`: what the install says it installs (else the first release's name), its folder
@@ -107,6 +110,7 @@ pub fn cli(args: TokenStream, item: TokenStream) -> TokenStream {
     for field in fields.named.iter_mut() {
         let mut kind = None;
         let mut on = false;
+        let mut flag = field.ident.as_ref().unwrap().to_string().replace('_', "-");
         for attr in &field.attrs {
             if ours(attr, "release") {
                 let args = match attr.parse_args_with(Punctuated::<Expr, Token![,]>::parse_terminated) {
@@ -130,11 +134,16 @@ pub fn cli(args: TokenStream, item: TokenStream) -> TokenStream {
                 }
             } else if ours(attr, "on") {
                 on = true;
+            } else if ours(attr, "flag") {
+                match attr.parse_args::<LitStr>() {
+                    Ok(name) => flag = name.value(),
+                    Err(problem) => return problem.to_compile_error().into(),
+                }
             }
         }
         field
             .attrs
-            .retain(|attr| !ours(attr, "release") && !ours(attr, "artifact") && !ours(attr, "on"));
+            .retain(|attr| !["release", "artifact", "on", "flag"].iter().any(|name| ours(attr, name)));
         let (always, path) = match &field.ty {
             Type::Tuple(tuple) if tuple.elems.is_empty() => (true, false),
             Type::Path(ty) if ty.path.is_ident("bool") => (false, false),
@@ -152,7 +161,7 @@ pub fn cli(args: TokenStream, item: TokenStream) -> TokenStream {
             // (a part always installed is only there to be described)
             field.attrs.push(syn::parse_quote!(#[allow(dead_code)]));
         }
-        parts.push((field.ident.clone().unwrap(), doc(&field.attrs), kind, always));
+        parts.push((field.ident.clone().unwrap(), flag, doc(&field.attrs), kind, always));
     }
     // 🚩 the flags every install has, read through the struct (cli.reinstall)
     fields.named.push(syn::parse_quote! {
@@ -165,7 +174,7 @@ pub fn cli(args: TokenStream, item: TokenStream) -> TokenStream {
     let releases = format_ident!("{name}Releases");
     let artifacts = format_ident!("{name}Artifacts");
     let about = doc(&item.attrs);
-    let first_release = parts.iter().find_map(|(_, _, kind, _)| match kind {
+    let first_release = parts.iter().find_map(|(_, _, _, kind, _)| match kind {
         Kind::Release(_, name) => Some(name.value()),
         _ => None,
     });
@@ -180,8 +189,7 @@ pub fn cli(args: TokenStream, item: TokenStream) -> TokenStream {
     let (mut defaults, mut described, mut setters, mut paths) = (vec![], vec![], vec![], vec![]);
     let (mut release_fields, mut release_values) = (vec![], vec![]);
     let (mut artifact_fields, mut artifact_values) = (vec![], vec![]);
-    for (field, doc, kind, always) in &parts {
-        let flag = field.to_string().replace('_', "-");
+    for (field, flag, doc, kind, always) in &parts {
         let on = if *always || matches!(kind, Kind::Path) {
             quote!(::core::option::Option::None)
         } else {

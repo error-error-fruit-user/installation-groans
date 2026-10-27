@@ -52,7 +52,7 @@ mod prompt;
 mod release;
 mod screen;
 
-pub use command_line::{Flags, Installer, Kind, Mode, Part, parse, plan_parts};
+pub use command_line::{Flags, Installer, Kind, Mode, Part, lowered, parse, plan_parts};
 pub use installation::{Artifact, Installation};
 pub use places::{Location, Places};
 pub use prompt::prompt_user;

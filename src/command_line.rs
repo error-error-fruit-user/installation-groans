@@ -141,6 +141,16 @@ pub trait Installer: Sized + DerefMut<Target = Flags> {
     fn artifacts(&self, places: &Places) -> Self::Artifacts;
 }
 
+/// A doc comment as a line of the plan, after "Saying yes:" (`Installs tdl` is `installs tdl`, but
+/// `UZDoom ...` keeps its capitals).
+pub fn lowered(doc: &str) -> String {
+    let mut letters = doc.chars();
+    match (letters.next(), letters.clone().next()) {
+        (Some(first), Some(second)) if !second.is_uppercase() => first.to_lowercase().chain(letters).collect(),
+        _ => doc.to_string(),
+    }
+}
+
 /// The plan's lines for `cli`'s wanted parts, from their docs: what `cli(plan = ...)` replaces.
 pub fn plan_parts<C: Installer>(cli: &C, places: &Places) -> Vec<String> {
     cli.parts()
@@ -148,14 +158,14 @@ pub fn plan_parts<C: Installer>(cli: &C, places: &Places) -> Vec<String> {
         .filter(|part| part.wanted())
         .map(|part| match part.kind {
             Kind::Artifact(installation) => {
-                Artifact::new(part.flag, installation, places, part.on).plan(part.doc)
+                Artifact::new(part.flag, installation, places, part.on).plan(&lowered(part.doc))
             }
             Kind::Path => format!(
                 "  - {}: {}",
-                part.doc,
+                lowered(part.doc),
                 part.path.as_deref().map(|path| path.display().to_string()).unwrap_or_default()
             ),
-            _ => format!("  - {}", part.doc),
+            _ => format!("  - {}", lowered(part.doc)),
         })
         .collect()
 }

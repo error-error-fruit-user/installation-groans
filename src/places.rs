@@ -220,11 +220,11 @@ pub(crate) fn plan<C: Installer>(cli: &C, flags: bool) -> Vec<String> {
         }
         Err(problem) => return vec![format!("It can't go there: {problem}")],
     };
-    let mut lines = vec!["Saying yes will:".to_string()];
+    let mut lines = vec!["Saying yes:".to_string()];
     lines.push(match places.mode {
-        Mode::InPlace => format!("  - install {title} in place, in {}, adding no command", places.dir.display()),
+        Mode::InPlace => format!("  - installs {title} in place, in {}, adding no command", places.dir.display()),
         Mode::User => format!(
-            "  - install {title} for you only, in {}{}",
+            "  - installs {title} for you only, in {}{}",
             places.dir.display(),
             if cli.parts().iter().any(|part| matches!(part.kind, Kind::Release(..))) {
                 format!(", its command on your PATH ({})", places.bin().display())
@@ -234,17 +234,17 @@ pub(crate) fn plan<C: Installer>(cli: &C, flags: bool) -> Vec<String> {
         ),
     });
     lines.push(format!(
-        "  - put everything else it makes, its artifacts, in {}: its log among them",
+        "  - puts everything else it makes, its artifacts, in {}: its log among them",
         places.artifacts.display()
     ));
     lines.extend(cli.plan(&places));
     if cli.desktop_shortcut {
-        lines.push(format!("  - make a shortcut to {title} on your desktop, with the system's lock icon"));
+        lines.push(format!("  - makes a shortcut to {title} on your desktop, with the system's lock icon"));
     }
     if cli.menu_entry {
-        lines.push(format!("  - make an entry for {title} in your app menu, with the system's lock icon"));
+        lines.push(format!("  - makes an entry for {title} in your app menu, with the system's lock icon"));
     }
-    lines.push("  - leave alone what is there already".into());
+    lines.push("  - leaves alone what is there already".into());
     let steps = journal::Steps::open(&places.artifacts, cli.reinstall);
     // (a step marked with what it was done with, `tdl <mark>`, by its name alone, each once)
     let mut earlier: Vec<&str> = Vec::new();
@@ -256,7 +256,7 @@ pub(crate) fn plan<C: Installer>(cli: &C, flags: bool) -> Vec<String> {
     }
     if !earlier.is_empty() {
         lines.push(format!(
-            "  - skip what an earlier run finished ({}), picking up where it left off (--reinstall does it all again)",
+            "  - skips what an earlier run finished ({}), picking up where it left off (--reinstall does it all again)",
             earlier.join(", ")
         ));
     }
