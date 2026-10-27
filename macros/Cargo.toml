@@ -1,0 +1,14 @@
+[package]
+name = "installation-groans-macros"
+version = "0.1.0"
+edition = "2024"
+license = "0BSD"
+description = "installation-groans' macros: #[cli] and #[location]"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }

@@ -1,0 +1,407 @@
+//! What an installer installs, [`Installation`], and getting one: downloads checked against their
+//! size and hash, unpacked or taken out of their zips.
+
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::{Path, PathBuf},
+};
+
+use crate::{Outcome, journal, note};
+
+/// Something an installer installs, as a `const`, filled in from [`Installation::default`]:
+///
+/// ```ignore
+/// const FREEDOOM: Installation = Installation {
+///     name: "Freedoom 2",
+///     version: "0.13.0",
+///     download: Some("https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip"),
+///     size: 24_143_781,
+///     blake3: Some("5f947833ecce402da78af8f63e9d647191b48f97dfa0ebd16b464548492d9719"),
+///     into: "wads/base_wads",
+///     take: &[("freedoom-0.13.0/freedoom2.wad", "freedoom2.wad")],
+///     ..Installation::default()
+/// };
+/// ```
+///
+/// One that differs between systems is two, picked with `cfg!`: `const UZDOOM: Installation = if
+/// cfg!(windows) { UZDOOM_WINDOWS } else { UZDOOM_LINUX };`.
+#[derive(Clone, Copy, Debug)]
+pub struct Installation {
+    /// What it is called where the install says so; its field's name if empty.
+    pub name: &'static str,
+    /// Its version, for the plan.
+    pub version: &'static str,
+    /// Its repository: a release is built from it (`cargo build --release`) when it is found
+    /// nowhere nearer; an artifact is cloned into its folder.
+    pub git: Option<&'static str>,
+    /// Where it is downloaded from: a zip is unpacked (or has `take` taken out), anything else is
+    /// kept as it is.
+    pub download: Option<&'static str>,
+    /// The download's size in bytes, which it must be (0: not checked).
+    pub size: u64,
+    /// The download's BLAKE3 hash, which it must have.
+    pub blake3: Option<&'static str>,
+    /// An artifact's folder in the artifacts (its field's name if empty).
+    pub into: &'static str,
+    /// The files taken out of a zip, and what each is called in `into`; empty unpacks it all.
+    pub take: &'static [(&'static str, &'static str)],
+    /// The file that matters in `into` (what a download that isn't a zip is kept as, or the program
+    /// in an unpacked zip); the first file taken, or the download's own name, if empty.
+    pub file: &'static str,
+    /// Whether `file` is a program, to be let run.
+    pub executable: bool,
+}
+
+impl Installation {
+    /// Nothing at all, to fill in with `..Installation::default()`.
+    pub const fn default() -> Self {
+        Installation {
+            name: "",
+            version: "",
+            git: None,
+            download: None,
+            size: 0,
+            blake3: None,
+            into: "",
+            take: &[],
+            file: "",
+            executable: false,
+        }
+    }
+
+    /// What it is called, its field's (`flag`) name if it says nothing.
+    pub fn called<'a>(&'a self, flag: &'a str) -> &'a str {
+        if self.name.is_empty() { flag } else { self.name }
+    }
+
+    /// The download's own file name.
+    fn download_name(&self) -> Option<&'static str> {
+        self.download?.rsplit('/').next().filter(|name| !name.is_empty())
+    }
+
+    /// Its folder, as an artifact of the install whose artifacts are `art`.
+    pub fn folder(&self, art: &Path, flag: &str) -> PathBuf {
+        art.join(if self.into.is_empty() { flag } else { self.into })
+    }
+
+    /// The file that matters in its folder, as an artifact in `art`.
+    pub fn path(&self, art: &Path, flag: &str) -> PathBuf {
+        let folder = self.folder(art, flag);
+        if !self.file.is_empty() {
+            folder.join(self.file)
+        } else if let Some((_, name)) = self.take.first() {
+            folder.join(name)
+        } else if let Some(name) = self.download_name().filter(|name| !name.ends_with(".zip")) {
+            folder.join(name)
+        } else {
+            folder
+        }
+    }
+
+    /// The plan's line for it, as an artifact (`doc` is its field's doc comment).
+    pub(crate) fn plan(&self, doc: &str, flag: &str, art: &Path) -> String {
+        let mut line = format!("  - {doc}");
+        let what = [self.called(flag), self.version]
+            .into_iter()
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let folder = self.folder(art, flag);
+        let shown = folder.strip_prefix(art).unwrap_or(&folder).display();
+        match (self.download, self.git) {
+            (Some(_), _) if self.blake3.is_some() => line.push_str(&format!(
+                ": {what} is downloaded into {shown}/ in the artifacts, checked against its pinned size and hash"
+            )),
+            (Some(_), _) => line.push_str(&format!(": {what} is downloaded into {shown}/ in the artifacts")),
+            (None, Some(git)) => line.push_str(&format!(": {what} is cloned from {git} into {shown}/ in the artifacts")),
+            (None, None) => {}
+        }
+        line
+    }
+
+    /// Puts it in its folder in `art` (`flag` is its field), unless it is there already (and not
+    /// `reinstall`). Returns the file that matters, or `None` if nothing was done.
+    pub(crate) fn install(
+        &self,
+        flag: &str,
+        art: &Path,
+        scratch: &Scratch,
+        reinstall: bool,
+    ) -> Outcome<Option<PathBuf>> {
+        let name = self.called(flag);
+        let folder = self.folder(art, flag);
+        let path = self.path(art, flag);
+        let there = if self.take.is_empty() {
+            folder.exists()
+        } else {
+            self.take.iter().all(|(_, to)| folder.join(to).exists())
+        };
+        if there && !reinstall {
+            journal::tell(
+                "skip",
+                &[("what", name), ("place", &folder.display().to_string())],
+                &format!("{name}: {} is there already, so it is left alone", folder.display()),
+            );
+            return Ok(None);
+        }
+        let Some(download_name) = self.download_name() else {
+            if let Some(git) = self.git {
+                clone(git, &folder)?;
+                return Ok(Some(path));
+            }
+            return Err(format!("{name} has nowhere to come from (no download, no git)"));
+        };
+        let file = fetch(self, download_name, scratch)?;
+        if !self.take.is_empty() {
+            note!("taking {} file(s) out of {download_name}", self.take.len());
+            let mut archive = open_zip(&file)?;
+            // 📜 the last first, so the first (the one that matters) never arrives without the rest
+            for (inside, to) in self.take.iter().rev() {
+                let mut entry = archive
+                    .by_name(inside)
+                    .map_err(|error| format!("{inside} isn't in {download_name}: {error}"))?;
+                write_whole(&mut entry, &folder.join(to))?;
+            }
+            return Ok(Some(path));
+        }
+        journal::tell(
+            "unpack",
+            &[("name", download_name), ("place", &folder.display().to_string())],
+            &format!("unpacking {download_name} into {}", folder.display()),
+        );
+        // 🧱 built beside the real one, which only appears once it is whole
+        let mut part = folder.as_os_str().to_os_string();
+        part.push(".part");
+        let part = PathBuf::from(part);
+        let _ = fs::remove_dir_all(&part);
+        let built = if download_name.ends_with(".zip") {
+            unpack_all(&file, &part)
+        } else {
+            place(&file, &part.join(path.file_name().unwrap_or_default()), self.executable)
+        };
+        if let Err(problem) = built {
+            let _ = fs::remove_dir_all(&part);
+            return Err(problem);
+        }
+        if self.executable && download_name.ends_with(".zip") {
+            let _ = executable(&part.join(path.strip_prefix(&folder).unwrap_or(&path)));
+        }
+        if folder.exists() {
+            note!("--reinstall: replacing {}", folder.display());
+            fs::remove_dir_all(&folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+        }
+        fs::rename(&part, &folder).map_err(|error| {
+            let _ = fs::remove_dir_all(&part);
+            format!("couldn't make {}: {error}", folder.display())
+        })?;
+        Ok(Some(path))
+    }
+}
+
+/// Clones `git` into `folder`.
+fn clone(git: &str, folder: &Path) -> Outcome<()> {
+    if folder.exists() {
+        note!("--reinstall: replacing {}", folder.display());
+        fs::remove_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    }
+    let status = journal::run(
+        std::process::Command::new("git")
+            .args(["clone", "--depth", "1", git])
+            .arg(folder),
+        &format!("git clone {git}"),
+    )
+    .map_err(|error| format!("couldn't run git: {error}"))?;
+    if !status.success() {
+        return Err(format!("git clone {git} failed ({status})"));
+    }
+    Ok(())
+}
+
+/// Lets `file` run.
+pub(crate) fn executable(file: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(file, fs::Permissions::from_mode(0o755))?;
+    }
+    let _ = file;
+    Ok(())
+}
+
+/// Copies `file` to `to`, by way of `<to>.part`, letting it run if it is `runs`.
+pub(crate) fn place(file: &Path, to: &Path, runs: bool) -> Outcome<()> {
+    let problem = |error: io::Error| format!("{}: {error}", to.display());
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent).map_err(problem)?;
+    }
+    let mut part = to.as_os_str().to_os_string();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    fs::copy(file, &part).map_err(problem)?;
+    if runs {
+        executable(&part).map_err(problem)?;
+    }
+    // (a program that is running can be replaced this way)
+    fs::rename(&part, to).map_err(problem)?;
+    note!("copied {} to {}", file.display(), to.display());
+    Ok(())
+}
+
+/// Downloads `installation` (whose download is called `name`) into the scratch folder, checking
+/// its size and hash on the way. Returns where it is.
+pub(crate) fn fetch(installation: &Installation, name: &str, scratch: &Scratch) -> Outcome<PathBuf> {
+    let url = installation.download.unwrap_or_default();
+    let size = installation.size;
+    let path = scratch.dir()?.join(name);
+    let shown_size = if size > 0 { journal::size(size) } else { "its size unknown".into() };
+    journal::tell(
+        "download",
+        &[("name", name), ("size", &shown_size)],
+        &format!("Downloading {name} ({shown_size})"),
+    );
+    note!(
+        "downloading {url} ({size} bytes, BLAKE3 {}) to {}",
+        installation.blake3.unwrap_or("unchecked"),
+        path.display()
+    );
+    let failed = |error: &dyn std::fmt::Display| format!("downloading {url}: {error}");
+    let mut reader = ureq::get(url)
+        .call()
+        .map_err(|error| failed(&error))?
+        .into_body()
+        .into_reader();
+    let mut file = fs::File::create(&path).map_err(|error| failed(&error))?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0; 256 * 1024];
+    let mut total = 0;
+    let mut shown = u64::MAX;
+    loop {
+        let read = reader.read(&mut buf).map_err(|error| failed(&error))?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        if size > 0 && total > size {
+            return Err(failed(&"it is bigger than it should be"));
+        }
+        hasher.update(&buf[..read]);
+        file.write_all(&buf[..read]).map_err(|error| failed(&error))?;
+        let progress = (total * 100).checked_div(size).unwrap_or(total / 1_000_000);
+        if progress != shown {
+            shown = progress;
+            if size > 0 {
+                eprint!("\r{name}: {progress:>3}%");
+            } else {
+                eprint!("\r{name}: {progress} MB");
+            }
+        }
+    }
+    eprintln!();
+    file.sync_all().map_err(|error| failed(&error))?;
+    if size > 0 && total != size {
+        return Err(failed(&"it ended early"));
+    }
+    let hash = hasher.finalize().to_hex();
+    match installation.blake3 {
+        Some(blake3) if hash.as_str() != blake3 => {
+            note!("{name} came with BLAKE3 {hash}");
+            journal::tell(
+                "corrupted",
+                &[("name", name)],
+                &format!("{name} isn't the file it should be"),
+            );
+            Err(failed(&"it isn't the file it should be (its hash differs)"))
+        }
+        Some(_) => {
+            note!("{name}: {total} bytes, and its hash is the one it should be");
+            journal::tell("verified", &[("name", name)], &format!("{name}: checked"));
+            Ok(path)
+        }
+        None => {
+            note!("{name}: {total} bytes, BLAKE3 {hash} (unchecked)");
+            journal::tell(
+                "downloaded",
+                &[("name", name), ("size", &journal::size(total))],
+                &format!("{name}: downloaded"),
+            );
+            Ok(path)
+        }
+    }
+}
+
+fn open_zip(file: &Path) -> Outcome<zip::ZipArchive<fs::File>> {
+    let opened = fs::File::open(file).map_err(|error| format!("{}: {error}", file.display()))?;
+    zip::ZipArchive::new(opened).map_err(|error| format!("{}: {error}", file.display()))
+}
+
+/// Unpacks every file in the zip at `file` into `folder`. A name that would land outside it is
+/// refused.
+fn unpack_all(file: &Path, folder: &Path) -> Outcome<()> {
+    let mut archive = open_zip(file)?;
+    fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("{}: {error}", file.display()))?;
+        let Some(name) = entry.enclosed_name() else {
+            return Err(format!("{} has a file named {:?}", file.display(), entry.name()));
+        };
+        let to = folder.join(name);
+        if entry.is_dir() {
+            fs::create_dir_all(&to).map_err(|error| format!("{}: {error}", to.display()))?;
+        } else {
+            write_whole(&mut entry, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes all of `from` to `to`, by way of `<to>.part`, so a file cut short is never left as if it
+/// were whole.
+fn write_whole(from: &mut impl Read, to: &Path) -> Outcome<()> {
+    let problem = |error: io::Error| format!("{}: {error}", to.display());
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent).map_err(problem)?;
+    }
+    let mut part = to.as_os_str().to_os_string();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    let written = (|| {
+        let mut file = fs::File::create(&part)?;
+        let bytes = io::copy(from, &mut file)?;
+        file.sync_all()?;
+        fs::rename(&part, to)?;
+        Ok::<u64, io::Error>(bytes)
+    })();
+    match written {
+        Ok(bytes) => note!("wrote {} ({bytes} bytes)", to.display()),
+        Err(error) => {
+            let _ = fs::remove_file(&part);
+            return Err(problem(error));
+        }
+    }
+    Ok(())
+}
+
+/// A folder for the downloads, in the system's temporary folder rather than beside the install,
+/// made the first time it is needed and deleted with everything in it at the end.
+pub(crate) struct Scratch(PathBuf);
+
+impl Scratch {
+    pub(crate) fn new() -> Self {
+        Self(std::env::temp_dir().join(format!("installation-groans-{}", std::process::id())))
+    }
+
+    pub(crate) fn dir(&self) -> Outcome<&Path> {
+        fs::create_dir_all(&self.0)
+            .map_err(|error| format!("couldn't make {}: {error}", self.0.display()))?;
+        Ok(&self.0)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
