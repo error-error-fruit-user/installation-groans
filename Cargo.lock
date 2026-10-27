@@ -643,6 +643,7 @@ dependencies = [
  "installation-groans-macros",
  "ratatui",
  "regex-lite",
+ "sha2",
  "toml",
  "ureq",
  "zip",

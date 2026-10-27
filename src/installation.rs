@@ -35,13 +35,17 @@ pub struct Installation {
     /// Its repository: a release is built from it (`cargo build --release`) when it is found
     /// nowhere nearer; an artifact is cloned into its folder.
     pub git: Option<&'static str>,
-    /// Where it is downloaded from: a zip is unpacked (or has `take` taken out), anything else is
-    /// kept as it is.
+    /// Where it is downloaded from: a zip is unpacked (or has `take` taken out), a tarball
+    /// (`.tar.xz`, `.tar.gz`, `.tgz`, `.tar`) unpacked with `tar`, anything else kept as it is.
     pub download: Option<&'static str>,
+    /// Other places with the same file, tried in turn when `download` fails.
+    pub mirrors: &'static [&'static str],
     /// The download's size in bytes, which it must be (0: not checked).
     pub size: u64,
     /// The download's BLAKE3 hash, which it must have.
     pub blake3: Option<&'static str>,
+    /// The download's SHA-256 hash, which it must have (for a release that publishes one).
+    pub sha256: Option<&'static str>,
     /// An artifact's folder in the artifacts (its field's name if empty).
     pub into: &'static str,
     /// The files taken out of a zip, and what each is called in `into`; empty unpacks it all.
@@ -61,8 +65,10 @@ impl Installation {
             version: "",
             git: None,
             download: None,
+            mirrors: &[],
             size: 0,
             blake3: None,
+            sha256: None,
             into: "",
             take: &[],
             file: "",
@@ -92,7 +98,7 @@ impl Installation {
             folder.join(self.file)
         } else if let Some((_, name)) = self.take.first() {
             folder.join(name)
-        } else if let Some(name) = self.download_name().filter(|name| !name.ends_with(".zip")) {
+        } else if let Some(name) = self.download_name().filter(|name| !unpacked(name)) {
             folder.join(name)
         } else {
             folder
@@ -156,6 +162,8 @@ impl Installation {
         let _ = fs::remove_dir_all(&part);
         let built = if download_name.ends_with(".zip") {
             unpack_all(&file, &part)
+        } else if unpacked(download_name) {
+            untar(&file, &part)
         } else {
             place(&file, &part.join(path.file_name().unwrap_or_default()), self.executable)
         };
@@ -163,7 +171,7 @@ impl Installation {
             let _ = fs::remove_dir_all(&part);
             return Err(problem);
         }
-        if self.executable && download_name.ends_with(".zip") {
+        if self.executable && unpacked(download_name) {
             let _ = executable(&part.join(path.strip_prefix(&folder).unwrap_or(&path)));
         }
         if folder.exists() {
@@ -239,7 +247,7 @@ impl Artifact {
             .join(" ");
         let shown = self.folder.strip_prefix(&self.artifacts).unwrap_or(&self.folder).display();
         match (installation.download, installation.git) {
-            (Some(_), _) if installation.blake3.is_some() => line.push_str(&format!(
+            (Some(_), _) if installation.blake3.is_some() || installation.sha256.is_some() => line.push_str(&format!(
                 ": {what} is downloaded into {shown}/ in the artifacts, checked against its pinned size and hash"
             )),
             (Some(_), _) => line.push_str(&format!(": {what} is downloaded into {shown}/ in the artifacts")),
@@ -305,21 +313,40 @@ pub(crate) fn place(file: &Path, to: &Path, runs: bool) -> Outcome<()> {
     Ok(())
 }
 
-/// Downloads `installation` (whose download is called `name`) into the scratch folder, checking
-/// its size and hash on the way. Returns where it is.
+/// Downloads `installation` (whose download is called `name`) into the scratch folder, from its
+/// `download` or else its `mirrors` in turn, checking its size and hashes on the way. Returns where
+/// it is.
 pub(crate) fn fetch(installation: &Installation, name: &str, scratch: &Scratch) -> Outcome<PathBuf> {
-    let url = installation.download.unwrap_or_default();
     let size = installation.size;
-    let path = scratch.dir()?.join(name);
     let shown_size = if size > 0 { journal::size(size) } else { "its size unknown".into() };
     journal::tell(
         "download",
         &[("name", name), ("size", &shown_size)],
         &format!("Downloading {name} ({shown_size})"),
     );
+    let mut last = format!("{name} has nowhere to be downloaded from");
+    for url in installation.download.iter().chain(installation.mirrors) {
+        match fetch_from(installation, url, name, scratch) {
+            Ok(path) => return Ok(path),
+            Err(problem) if problem.contains("isn't the file it should be") => return Err(problem),
+            Err(problem) => {
+                crate::warn!("{problem}");
+                last = problem;
+            }
+        }
+    }
+    Err(last)
+}
+
+/// [`fetch`] from `url`.
+fn fetch_from(installation: &Installation, url: &str, name: &str, scratch: &Scratch) -> Outcome<PathBuf> {
+    use sha2::Digest;
+    let size = installation.size;
+    let path = scratch.dir()?.join(name);
     note!(
-        "downloading {url} ({size} bytes, BLAKE3 {}) to {}",
+        "downloading {url} ({size} bytes, BLAKE3 {}, SHA-256 {}) to {}",
         installation.blake3.unwrap_or("unchecked"),
+        installation.sha256.unwrap_or("unchecked"),
         path.display()
     );
     let failed = |error: &dyn std::fmt::Display| format!("downloading {url}: {error}");
@@ -329,62 +356,95 @@ pub(crate) fn fetch(installation: &Installation, name: &str, scratch: &Scratch) 
         .into_body()
         .into_reader();
     let mut file = fs::File::create(&path).map_err(|error| failed(&error))?;
-    let mut hasher = blake3::Hasher::new();
+    let mut blake3 = blake3::Hasher::new();
+    let mut sha256 = sha2::Sha256::new();
     let mut buf = vec![0; 256 * 1024];
     let mut total = 0;
     let mut shown = u64::MAX;
     loop {
-        let read = reader.read(&mut buf).map_err(|error| failed(&error))?;
+        let read = match reader.read(&mut buf) {
+            Ok(read) => read,
+            Err(error) => {
+                journal::progress_done();
+                return Err(failed(&error));
+            }
+        };
         if read == 0 {
             break;
         }
         total += read as u64;
         if size > 0 && total > size {
+            journal::progress_done();
             return Err(failed(&"it is bigger than it should be"));
         }
-        hasher.update(&buf[..read]);
+        blake3.update(&buf[..read]);
+        sha256.update(&buf[..read]);
         file.write_all(&buf[..read]).map_err(|error| failed(&error))?;
         let progress = (total * 100).checked_div(size).unwrap_or(total / 1_000_000);
         if progress != shown {
             shown = progress;
-            if size > 0 {
-                eprint!("\r{name}: {progress:>3}%");
+            journal::progress(&if size > 0 {
+                format!("{name}: {progress:>3}% of {}", journal::size(size))
             } else {
-                eprint!("\r{name}: {progress} MB");
-            }
+                format!("{name}: {progress} MB")
+            });
         }
     }
-    eprintln!();
+    journal::progress_done();
     file.sync_all().map_err(|error| failed(&error))?;
     if size > 0 && total != size {
         return Err(failed(&"it ended early"));
     }
-    let hash = hasher.finalize().to_hex();
-    match installation.blake3 {
-        Some(blake3) if hash.as_str() != blake3 => {
-            note!("{name} came with BLAKE3 {hash}");
-            journal::tell(
-                "corrupted",
-                &[("name", name)],
-                &format!("{name} isn't the file it should be"),
-            );
-            Err(failed(&"it isn't the file it should be (its hash differs)"))
-        }
-        Some(_) => {
-            note!("{name}: {total} bytes, and its hash is the one it should be");
-            journal::tell("verified", &[("name", name)], &format!("{name}: checked"));
-            Ok(path)
-        }
-        None => {
-            note!("{name}: {total} bytes, BLAKE3 {hash} (unchecked)");
-            journal::tell(
-                "downloaded",
-                &[("name", name), ("size", &journal::size(total))],
-                &format!("{name}: downloaded"),
-            );
-            Ok(path)
-        }
+    let blake3 = blake3.finalize().to_hex().to_string();
+    let sha256: String = sha256.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    let wrong = [(installation.blake3, &blake3, "BLAKE3"), (installation.sha256, &sha256, "SHA-256")]
+        .into_iter()
+        .find(|(pinned, hash, _)| pinned.is_some_and(|pinned| pinned != hash.as_str()));
+    if let Some((_, hash, kind)) = wrong {
+        note!("{name} came with {kind} {hash}");
+        journal::tell(
+            "corrupted",
+            &[("name", name)],
+            &format!("{name} isn't the file it should be"),
+        );
+        return Err(failed(&"it isn't the file it should be (its hash differs)"));
     }
+    if installation.blake3.is_some() || installation.sha256.is_some() {
+        note!("{name}: {total} bytes, and its hash is the one it should be");
+        journal::tell("verified", &[("name", name)], &format!("{name}: checked"));
+    } else {
+        note!("{name}: {total} bytes, BLAKE3 {blake3} (unchecked)");
+        journal::tell(
+            "downloaded",
+            &[("name", name), ("size", &journal::size(total))],
+            &format!("{name}: downloaded"),
+        );
+    }
+    Ok(path)
+}
+
+/// Whether a download called `name` is unpacked (a zip or a tarball) rather than kept.
+fn unpacked(name: &str) -> bool {
+    [".zip", ".tar.xz", ".tar.gz", ".tgz", ".tar"]
+        .iter()
+        .any(|ending| name.ends_with(ending))
+}
+
+/// Unpacks the tarball at `file` into `folder` with the system's `tar` (GNU tar, or the bsdtar
+/// Windows has), which tells its compression itself.
+fn untar(file: &Path, folder: &Path) -> Outcome<()> {
+    fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    let status = std::process::Command::new("tar")
+        .arg("-xf")
+        .arg(file)
+        .arg("-C")
+        .arg(folder)
+        .status()
+        .map_err(|error| format!("couldn't run tar, which unpacks {}: {error}", file.display()))?;
+    if !status.success() {
+        return Err(format!("tar couldn't unpack {} ({status})", file.display()));
+    }
+    Ok(())
 }
 
 fn open_zip(file: &Path) -> Outcome<zip::ZipArchive<fs::File>> {

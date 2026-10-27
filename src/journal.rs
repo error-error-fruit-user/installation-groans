@@ -670,6 +670,25 @@ pub fn finish(what: &str) {
     }
 }
 
+/// A line drawn in place on the terminal (a download's progress), in the voice's colour for other
+/// programs' lines, each redrawing the last; nothing when the output is no terminal.
+pub fn progress(text: &str) {
+    let mut out = std::io::stdout();
+    if out.is_terminal() {
+        let _ = write!(out, "\r\x1b[K{}", paint(text, "other"));
+        let _ = out.flush();
+    }
+}
+
+/// Takes the line [`progress`] drew away, once what it showed is done.
+pub fn progress_done() {
+    let mut out = std::io::stdout();
+    if out.is_terminal() {
+        let _ = write!(out, "\r\x1b[K");
+        let _ = out.flush();
+    }
+}
+
 /// A size, as a person reads it.
 pub fn size(bytes: u64) -> String {
     if bytes >= 1_000_000 {
