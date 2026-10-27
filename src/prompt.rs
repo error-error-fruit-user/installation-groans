@@ -173,8 +173,6 @@ fn ask<C: Installer>(terminal: &mut ratatui::DefaultTerminal, cli: &mut C) -> Op
                             Some(Mode::InPlace) => Mode::User,
                             _ => Mode::InPlace,
                         });
-                        // (the folder given was for the other mode)
-                        cli.dir = None;
                     }
                     Some((Item::Part(flag), on)) => {
                         cli.set(flag, !on);
